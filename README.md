@@ -2,7 +2,51 @@
 
 An experimental space-heater safety helper for the **Meta Global AI Developer Hackathon**. Three Feet aims to detect objects in a heater's clearance zone, explain the concern, attempt to turn the heater off, and report whether shutdown was independently confirmed.
 
-**Status:** Project concept and plan. No detection, measurement, or shutdown functionality has been implemented or validated yet. This is a research prototype, not a fire-safety device; do not rely on it to prevent fires or replace manufacturer instructions, smoke alarms, or safe heater practices.
+**Build plan:** See [PLAN.md](./PLAN.md) for the current architecture, schedule, validation protocol, and demo script. It uses one Android phone camera and a power-metering smart plug. The dashboard plan is in [FRONTEND_PLAN.md](./FRONTEND_PLAN.md).
+
+**Status:** Work in progress. Written during the hackathon so far:
+- the Python core: frame sources, Meta API clients, floor-plane geometry, the safety state machine, and plug control
+- the live engine and FastAPI server
+- a React dashboard, with a simulator for demos without hardware
+
+It has unit and end-to-end tests but has **not yet been validated** against real measurements or real shutoffs. This is a research prototype, not a fire-safety device; do not rely on it to prevent fires or replace manufacturer instructions, smoke alarms, or safe heater practices.
+
+## Quickstart (development)
+
+Requires Python 3.11+ (developed on 3.14) on Windows.
+
+```powershell
+py -3.14 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+Copy-Item .env.example .env      # then add MODEL_API_KEY and the phone camera URL
+.\.venv\Scripts\python.exe -m pytest
+```
+
+| Step | Command |
+| --- | --- |
+| Check the API key and models | `.\.venv\Scripts\python.exe scripts\smoke_api.py` |
+| View the phone camera (press S to save snapshots to `data/photos/`) | `.\.venv\Scripts\python.exe scripts\view_stream.py --source phone` |
+| Print ArUco markers | `.\.venv\Scripts\python.exe tools\print_markers.py` |
+| Calibrate the floor and mark the heater | `.\.venv\Scripts\python.exe scripts\calibrate.py --image data\photos\setup.jpg --layout data\markers_layout.example.json` |
+| Extract the clearance rule from a manual | `.\.venv\Scripts\python.exe scripts\extract_rules.py data\manuals\heater.pdf` |
+| Run SAM 3.1 on photos, with distances if calibrated | `.\.venv\Scripts\python.exe scripts\sam_photos.py data\photos --spark` |
+
+Phone camera: the [Android IP Camera](https://github.com/DigitallyRefined/android-ip-camera) app. Set `CAMERA_URL=https://PHONE_IP:4444/video/mjpeg` and the app's username and password in `.env`.
+
+### Dashboard
+
+Build the web UI once (Node 20+), then run the server. Open `http://127.0.0.1:8000`. Add `?demo=1` to show the fault-injection panel.
+
+```powershell
+cd web; npm install; npm run build; cd ..
+.\.venv\Scripts\python.exe -m three_feet.app --source sim --demo     # simulated scene, no hardware or API key
+.\.venv\Scripts\python.exe -m three_feet.app --source phone --plug shelly --demo   # live
+.\.venv\Scripts\python.exe -m three_feet.app --source data\photos --demo           # replay photos with real API calls
+```
+
+The simulator renders a synthetic overhead view with real ArUco markers, a heater whose power light follows a simulated plug, and scripted objects. Everything after the frame (calibration, geometry, safety state machine, verification, incident log, and UI) is the real code, and the UI labels the scene **SIMULATED**.
+
+For frontend development, keep the server running and use `npm run dev` in `web/` (http://localhost:5173). Vite proxies `/api`, `/ws`, and `/stream.mjpg` to port 8000.
 
 ## The problem
 
