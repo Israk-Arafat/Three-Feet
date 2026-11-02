@@ -1,0 +1,15 @@
+{
+  "_comment": "Floor positions (inches) of each ArUco marker CENTER, tape-measured. Origin and axes are arbitrary but must be consistent. Default: a 48 x 48 in square around the heater.",
+  "markers": {
+    "0": [0, 0],
+    "1": [48, 0],
+    "2": [48, 48],
+    "3": [0, 48]
+  },
+  "points": [
+    {"name": "tape mark A (0,0)", "floor_in": [0, 0]},
+    {"name": "tape mark B (48,0)", "floor_in": [48, 0]},
+    {"name": "tape mark C (48,48)", "floor_in": [48, 48]},
+    {"name": "tape mark D (0,48)", "floor_in": [0, 48]}
+  ]
+}
