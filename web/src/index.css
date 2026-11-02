@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family:
+    "Inter",
+    "Segoe UI",
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+/* OFF_UNCONFIRMED: alternate red / white so it can't be missed. */
+@keyframes flash {
+  0% {
+    background-color: #dc2626;
+    color: #ffffff;
+  }
+  100% {
+    background-color: #f8fafc;
+    color: #7f1d1d;
+  }
+}
+
+/* Degraded / UNKNOWN: diagonal stripes, readable without relying on color. */
+.stripes {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgb(255 255 255 / 0.09) 0 14px,
+    transparent 14px 28px
+  );
+}
