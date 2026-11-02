@@ -24,7 +24,7 @@ import numpy as np
 from .calibration import CalibrationFile, detect_markers, drift_px, marker_centers
 from .config import RUNS_DIR, Settings
 from .geometry import ClearanceMap, Clearances, Measurement
-from .overlay import STATUS_BGR, draw_measured, put_label
+from .overlay import PAPER_BGR, STATUS_BGR, draw_measured, put_label
 from .perception.catchall import MotionGate, ZoneChangeDetector
 from .perception.meta_client import CostMeter
 from .perception.tracking import PerceivedObject
@@ -520,15 +520,16 @@ class Engine:
             canvas = frame.image.copy()
         if art is not None:
             watch_c, zone_c, heater_poly = art
-            cv2.drawContours(canvas, watch_c, -1, STATUS_BGR["watch"], 1, cv2.LINE_AA)
-            cv2.drawContours(canvas, zone_c, -1, STATUS_BGR["violation"], 2, cv2.LINE_AA)
-            cv2.polylines(canvas, [heater_poly], True, (255, 255, 255), 2, cv2.LINE_AA)
+            cv2.drawContours(canvas, watch_c, -1, STATUS_BGR["watch"], 2, cv2.LINE_AA)
+            cv2.drawContours(canvas, zone_c, -1, STATUS_BGR["violation"], 3, cv2.LINE_AA)
+            cv2.polylines(canvas, [heater_poly], True, PAPER_BGR, 2, cv2.LINE_AA)
         for mo in self._measured:
             label = mo.obj.label + ("" if mo.obj.source != "catchall" else " (catch-all)")
             draw_measured(canvas, mo.obj.mask, label, mo.m, mo.status)  # type: ignore[arg-type]
         if not camera_ok:
             canvas = (canvas * 0.35).astype(np.uint8)
-            put_label(canvas, "CAMERA FEED LOST - status UNKNOWN", (40, canvas.shape[0] // 2), (80, 80, 255), 1.2)
+            put_label(canvas, "No camera feed: status unknown", (40, canvas.shape[0] // 2), PAPER_BGR, 1.2,
+                      bg=STATUS_BGR["violation"])
         stamp = datetime.fromtimestamp(d.t).strftime("%H:%M:%S")
         text = f"{stamp}  {d.banner}" + ("  [SIMULATED]" if self.mode == "sim" else "")
         (tw, _), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)

@@ -48,6 +48,12 @@ The simulator renders a synthetic overhead view with real ArUco markers, a heate
 
 For frontend development, keep the server running and use `npm run dev` in `web/` (http://localhost:5173). Vite proxies `/api`, `/ws`, and `/stream.mjpg` to port 8000.
 
+The dashboard's visual design uses the Wayfind theme from [Hallmark](https://www.usehallmark.com) (installed for this project in `.agents/skills/hallmark`):
+- Chivo Mono throughout, self-hosted with `@fontsource`.
+- Square 2px ink borders.
+- Muted state colours.
+- Design tokens live in `web/src/tokens.css`.
+
 ## The problem
 
 Objects such as blankets, curtains, and boxes can end up too close to a space heater. NFPA estimates that space heaters **and heating stoves together** accounted for approximately 30% of reported U.S. home heating equipment fires and 73% of associated civilian deaths in 2020–2024. [NFPA heating safety](https://www.nfpa.org/education-and-research/home-fire-safety/heating?l=515)

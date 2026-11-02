@@ -1,7 +1,8 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import type { Rule, RuleDraft } from "../types";
-import { Card, ModelChip } from "./ui";
+import { Icon } from "./Icon";
+import { Panel } from "./ui";
 
 function Sides({ r }: { r: Pick<Rule, "front_in" | "back_in" | "left_in" | "right_in"> }) {
   const cells: [string, number][] = [
@@ -11,23 +12,33 @@ function Sides({ r }: { r: Pick<Rule, "front_in" | "back_in" | "left_in" | "righ
     ["Right", r.right_in],
   ];
   return (
-    <div className="grid grid-cols-4 gap-2 text-center">
+    <dl className="cells">
       {cells.map(([k, v]) => (
-        <div key={k} className="rounded-lg bg-slate-800/70 py-1.5">
-          <div className="text-xs uppercase text-slate-400">{k}</div>
-          <div className="text-xl font-bold tabular-nums">{v.toFixed(0)}″</div>
+        <div key={k} className="px-2 py-2 sm:px-3">
+          <dt className="text-xs font-medium text-muted">{k}</dt>
+          <dd className="num m-0 whitespace-nowrap leading-tight">
+            <span className="text-xl font-extrabold">{v.toFixed(0)}</span> <span className="text-sm">in</span>
+          </dd>
         </div>
       ))}
-    </div>
+    </dl>
   );
 }
 
 function RuleDialog({ onClose }: { onClose: () => void }) {
   const input = useRef<HTMLInputElement>(null);
+  const dialog = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<RuleDraft | null>(null);
   const [fileName, setFileName] = useState("");
+
+  useEffect(() => {
+    dialog.current?.focus();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   const extract = async (file: File) => {
     setBusy(true);
@@ -45,6 +56,7 @@ function RuleDialog({ onClose }: { onClose: () => void }) {
   const approve = async () => {
     if (!draft) return;
     setBusy(true);
+    setError(null);
     try {
       await api.approveRule(draft.rule);
       onClose();
@@ -56,75 +68,75 @@ function RuleDialog({ onClose }: { onClose: () => void }) {
 
   const ex = draft?.extraction;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-(--z-modal) flex items-center justify-center bg-ink/60 p-6" onClick={onClose}>
       <div
-        className="w-full max-w-2xl space-y-4 rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl"
+        ref={dialog}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rule-dialog-title"
+        tabIndex={-1}
+        className="w-full max-w-2xl space-y-4 border-2 border-ink bg-paper-3 p-6 shadow-card outline-none"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between">
-          <h3 className="text-2xl font-bold">Read clearance rule from the heater manual</h3>
-          <ModelChip name="Muse Wonder" />
+        <div className="flex items-baseline justify-between gap-4">
+          <h2 id="rule-dialog-title" className="text-xl">Read the rule from the heater manual</h2>
+          <span className="panel__note">Muse Wonder</span>
         </div>
         <input
           ref={input}
           type="file"
+          name="manual"
           accept="application/pdf"
-          className="hidden"
+          aria-label="Heater manual PDF"
+          className="visually-hidden"
           onChange={(e) => e.target.files?.[0] && extract(e.target.files[0])}
         />
         {!draft && (
           <button
+            type="button"
             disabled={busy}
+            aria-busy={busy}
             onClick={() => input.current?.click()}
-            className="w-full rounded-xl border-2 border-dashed border-slate-600 py-10 text-lg text-slate-300 hover:border-slate-400 disabled:opacity-60"
+            className="btn w-full min-h-28 border-dashed text-base"
           >
-            {busy ? `Muse Wonder is reading ${fileName}…` : "Choose the manual PDF"}
+            <Icon name="upload" />
+            {busy ? `Reading ${fileName}` : "Choose the manual PDF"}
           </button>
         )}
-        {error && <p className="rounded bg-red-900/60 px-3 py-2 text-red-100">{error}</p>}
+        {error && (
+          <p role="alert" className="border-2 border-state-warn bg-paper-3 px-3 py-2 text-state-warn">
+            {error}
+          </p>
+        )}
         {draft && ex && (
-          <div className="space-y-3">
+          <div className="space-y-4">
             {draft.simulated && (
-              <p className="rounded bg-yellow-400/90 px-3 py-1.5 text-sm font-bold text-slate-950">
-                SIMULATED extraction — no API key configured; this is sample output.
-              </p>
+              <p className="tag tag--amber">Simulated extraction: no API key is set, so this is sample output.</p>
             )}
-            <p className="text-slate-300">
+            <p>
               {ex.found ? (
                 <>
-                  Found in <b>{fileName}</b>
-                  {ex.page ? (
-                    <>
-                      , <b>page {ex.page}</b>
-                    </>
-                  ) : null}{" "}
-                  ({Math.round(ex.confidence * 100)}% confidence){ex.heater_model ? ` · ${ex.heater_model}` : ""}
+                  Found in {fileName}
+                  {ex.page ? `, page ${ex.page}` : ""}, {Math.round(ex.confidence * 100)}% confident
+                  {ex.heater_model ? `. Heater: ${ex.heater_model}.` : "."}
                 </>
               ) : (
-                <>No clearance distance was found — the {draft.minimum_in}″ default will be used on every side.</>
+                <>No clearance distance in this manual. The {draft.minimum_in} in default applies on every side.</>
               )}
             </p>
-            {ex.quote && (
-              <blockquote className="border-l-4 border-fuchsia-400 bg-slate-800/70 px-4 py-2 text-lg italic">
-                “{ex.quote}”
-              </blockquote>
-            )}
+            {ex.quote && <blockquote className="m-0 border-l-2 border-ink pl-4 text-lg">“{ex.quote}”</blockquote>}
             <div>
-              <div className="mb-1 text-sm text-slate-400">
-                Rule to enforce (the stricter of the manual and a {draft.minimum_in}″ minimum):
-              </div>
+              <p className="mb-2 text-sm text-muted">
+                The rule to enforce, the stricter of the manual and the {draft.minimum_in} in minimum:
+              </p>
               <Sides r={draft.rule} />
             </div>
-            <div className="flex justify-end gap-3 pt-2">
-              <button onClick={onClose} className="rounded-lg px-4 py-2 text-slate-300 hover:bg-slate-800">
+            <div className="flex justify-end gap-3">
+              <button type="button" className="btn" onClick={onClose}>
                 Cancel
               </button>
-              <button
-                onClick={approve}
-                disabled={busy}
-                className="rounded-lg bg-emerald-600 px-5 py-2 text-lg font-bold hover:bg-emerald-500 disabled:opacity-60"
-              >
-                Approve rule
+              <button type="button" className="btn btn--primary" onClick={approve} disabled={busy} aria-busy={busy}>
+                {busy ? "Saving" : "Approve rule"}
               </button>
             </div>
           </div>
@@ -134,38 +146,38 @@ function RuleDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function RuleCard({ rule }: { rule: Rule | undefined }) {
+export function RuleCard({ rule, className = "" }: { rule: Rule | undefined; className?: string }) {
   const [open, setOpen] = useState(false);
+  const note = rule?.source === "manual" ? `Muse Wonder${rule.page ? `, manual p.${rule.page}` : ""}` : "Default";
   return (
-    <Card title="Clearance rule" chip={rule?.source === "manual" ? <ModelChip name="Muse Wonder" /> : undefined}>
+    <Panel title="Clearance rule" note={rule ? note : undefined} className={className} bodyClassName="flex-1 overflow-y-auto">
       {!rule ? (
-        <p className="text-slate-400">—</p>
+        <p className="text-muted">Waiting for the rule.</p>
       ) : (
         <div className="space-y-2">
           <Sides r={rule} />
           {rule.source === "manual" ? (
-            <>
-              <div className="text-sm text-slate-300">
-                {rule.heater_model || "Heater"} manual{rule.page ? `, p.${rule.page}` : ""}
-              </div>
-              {rule.quote && <p className="line-clamp-3 text-sm italic text-slate-300">“{rule.quote}”</p>}
-            </>
+            rule.quote && (
+              <p className="truncate text-sm" title={rule.quote}>
+                “{rule.quote}”
+              </p>
+            )
           ) : (
-            <div className="text-sm text-slate-400">Default 36″ on every side — no manual loaded yet.</div>
+            <p className="text-sm text-muted">36 in on every side until a manual is read.</p>
           )}
-          <div className="flex items-center justify-between pt-1">
-            <span className={`text-sm font-semibold ${rule.approved ? "text-emerald-400" : "text-amber-300"}`}>
+          <div className="flex items-center justify-between gap-3">
+            <span className={`text-sm font-medium ${rule.approved ? "text-ink" : "text-muted"}`}>
               {rule.approved
-                ? `✓ Approved${rule.approved_at ? ` ${new Date(rule.approved_at).toLocaleString([], { hour: "numeric", minute: "2-digit", month: "short", day: "numeric" })}` : ""}`
-                : "Not reviewed"}
+                ? `Approved ${rule.approved_at ? new Date(rule.approved_at).toLocaleString([], { hour: "numeric", minute: "2-digit", month: "short", day: "numeric" }) : ""}`
+                : "Not reviewed yet"}
             </span>
-            <button onClick={() => setOpen(true)} className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-semibold hover:bg-slate-700">
-              Load from manual…
+            <button type="button" className="btn btn--sm" onClick={() => setOpen(true)}>
+              Read manual
             </button>
           </div>
         </div>
       )}
       {open && <RuleDialog onClose={() => setOpen(false)} />}
-    </Card>
+    </Panel>
   );
 }

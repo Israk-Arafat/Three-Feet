@@ -2,9 +2,16 @@ import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { clock } from "../lib/format";
 import type { EventItem, Incident } from "../types";
-import { Card, ModelChip } from "./ui";
 
-export function IncidentReport({ events, openIncident }: { events: EventItem[]; openIncident: string | null }) {
+export function IncidentReport({
+  events,
+  openIncident,
+  className = "",
+}: {
+  events: EventItem[];
+  openIncident: string | null;
+  className?: string;
+}) {
   const [incident, setIncident] = useState<Incident | null>(null);
   const lastReportEvent = [...events].reverse().find((e) => e.kind === "report")?.id ?? 0;
 
@@ -16,30 +23,30 @@ export function IncidentReport({ events, openIncident }: { events: EventItem[]; 
       .catch(() => undefined);
   }, [lastReportEvent]);
 
-  const chip = incident?.report_source === "muse-wonder" ? <ModelChip name="Muse Wonder" /> : incident ? <ModelChip name="template" /> : undefined;
+  const note = !incident ? undefined : incident.report_source === "muse-wonder" ? "Written by Muse Wonder" : "Written from the log";
 
   return (
-    <Card title="Incident report" chip={chip} className="flex min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {openIncident && <p className="mb-2 animate-pulse text-orange-200">Incident in progress — verifying shutoff…</p>}
+    <section className={`panel ${className}`}>
+      <header className="panel__head">
+        <h2>Last incident</h2>
+        {note && <span className="panel__note">{note}</span>}
+      </header>
+      <div className="panel__body flex-1 space-y-3 overflow-y-auto">
+        {openIncident && <p className="font-medium">An incident is open. Checking the shutoff now.</p>}
         {!incident ? (
-          !openIncident && <p className="text-slate-500">No shutoffs yet. After each one, Muse Wonder explains what happened.</p>
+          !openIncident && <p className="text-muted">No shutoffs yet. After each one, Muse Wonder writes up what happened.</p>
         ) : (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm text-slate-400">
-              <span>{clock(incident.started_t)}</span>
-              <span
-                className={`rounded px-2 py-0.5 text-xs font-bold ${
-                  incident.outcome === "confirmed" ? "bg-sky-700 text-white" : "bg-red-600 text-white"
-                }`}
-              >
-                {incident.outcome === "confirmed" ? "SHUTOFF CONFIRMED" : "NOT CONFIRMED"}
+          <>
+            <div className="flex items-center gap-3 text-sm">
+              <span className="num text-muted">{clock(incident.started_t)}</span>
+              <span className={`tag ${incident.outcome === "confirmed" ? "tag--ink" : "tag--amber"}`}>
+                {incident.outcome === "confirmed" ? "Shutoff confirmed" : "Not confirmed"}
               </span>
             </div>
-            <p className="whitespace-pre-line text-base leading-relaxed text-slate-100">{incident.report}</p>
-          </div>
+            <p className="whitespace-pre-line text-base leading-relaxed">{incident.report}</p>
+          </>
         )}
       </div>
-    </Card>
+    </section>
   );
 }

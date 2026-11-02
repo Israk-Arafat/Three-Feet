@@ -1,6 +1,6 @@
 import { watts } from "../lib/format";
 import type { StateMessage } from "../types";
-import { Card, Check } from "./ui";
+import { CheckRow, Panel } from "./ui";
 
 function Sparkline({ values, max }: { values: number[]; max: number }) {
   if (values.length < 2) return <div className="h-12" />;
@@ -9,44 +9,44 @@ function Sparkline({ values, max }: { values: number[]; max: number }) {
   const top = Math.max(max, ...values, 1);
   const pts = values.map((v, i) => `${(i / (values.length - 1)) * w},${h - (v / top) * (h - 4) - 2}`).join(" ");
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="h-12 w-full" aria-hidden>
-      <polyline points={pts} fill="none" stroke="#f97316" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="h-12 w-full text-ink" role="img" aria-label="Power draw over the last 30 seconds">
+      <polyline points={pts} fill="none" stroke="currentColor" strokeWidth="2" vectorEffect="non-scaling-stroke" />
     </svg>
   );
 }
 
-export function PowerCard({ state }: { state: StateMessage | null }) {
+export function PowerCard({ state, className = "" }: { state: StateMessage | null; className?: string }) {
   const p = state?.power;
   const s = state?.signals;
-  const shutting = state && ["VERIFYING", "OFF_CONFIRMED", "OFF_UNCONFIRMED"].includes(state.state);
-  const confirmedCount = s ? [s.power_off, s.indicator_off].filter((v) => v === true).length : 0;
+  const shutting = state ? ["VERIFYING", "OFF_CONFIRMED", "OFF_UNCONFIRMED"].includes(state.state) : false;
+  const total = state?.indicator_configured ? 2 : 1;
+  const passed = s ? [s.power_off, s.indicator_off].filter((v) => v === true).length : 0;
+  const plugNote = p ? `Plug: ${p.plug === "dryrun" ? "simulated" : p.plug}` : undefined;
+
   return (
-    <Card
-      title="Heater power"
-      chip={<span className="text-xs text-slate-400">plug: {p?.plug ?? "—"}{p?.plug === "dryrun" ? " (simulated)" : ""}</span>}
-    >
-      <div className="flex items-end justify-between gap-3">
+    <Panel title="Heater power" note={plugNote} className={className}>
+      <div className="flex items-end justify-between gap-4">
         <div>
-          <div className="text-4xl font-black tabular-nums">{p?.reachable ? watts(p.watts) : "—"}</div>
-          <div className={`text-sm font-semibold ${!p?.reachable ? "text-red-300" : p.on ? "text-orange-300" : "text-sky-300"}`}>
-            {!p?.reachable ? "Plug unreachable" : p.on ? "Plug ON" : "Plug OFF"}
+          <div className="num whitespace-nowrap text-4xl font-extrabold leading-none">{p?.reachable ? watts(p.watts) : "No reading"}</div>
+          <div className={`mt-1 text-sm font-medium ${!p?.reachable ? "text-state-warn" : "text-muted"}`}>
+            {!p?.reachable ? "Plug unreachable" : p.on ? "Plug on" : "Plug off"}
           </div>
         </div>
         <div className="w-1/2">
           <Sparkline values={p?.history ?? []} max={1600} />
         </div>
       </div>
-      <div className={`mt-3 rounded-lg p-2 ${shutting ? "bg-slate-800" : "bg-slate-800/40"}`}>
-        <div className="mb-1 flex items-center justify-between text-xs uppercase tracking-wider text-slate-400">
-          <span>Independent shutoff check</span>
-          {shutting && <span className="font-bold text-slate-200">{confirmedCount}/{state?.indicator_configured ? 2 : 1}</span>}
+      <div className="mt-4 border-t border-rule pt-3">
+        <div className="mb-1 flex items-baseline justify-between text-sm">
+          <h3>Shutoff check</h3>
+          <span className="num font-medium text-muted">{shutting ? `${passed} of ${total} passed` : "Runs after a power cut"}</span>
         </div>
-        <Check value={shutting ? (s?.power_off ?? null) : null} label="Power draw below 5 W (plug meter)" />
-        <Check
+        <CheckRow value={shutting ? (s?.power_off ?? null) : null} label="Power under 5 W, from the plug meter" />
+        <CheckRow
           value={shutting && state?.indicator_configured ? (s?.indicator_off ?? null) : null}
-          label={state?.indicator_configured ? "Power light dark (camera)" : "Power light check not configured"}
+          label={state?.indicator_configured ? "Power light dark, from the camera" : "Power light check not set up"}
         />
       </div>
-    </Card>
+    </Panel>
   );
 }

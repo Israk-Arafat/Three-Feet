@@ -1,126 +1,135 @@
 import { useState } from "react";
 import { api } from "../lib/api";
-import { humanFlag } from "../lib/format";
+import { capitalize, humanFlag } from "../lib/format";
 import type { SafetyState, StateMessage } from "../types";
+import { Icon, type IconName } from "./Icon";
 
-const LOOK: Record<SafetyState | "UNKNOWN", { bg: string; icon: string; title: string }> = {
-  CLEAR: { bg: "bg-emerald-700", icon: "✓", title: "Zone clear" },
-  WATCH: { bg: "bg-amber-400 text-slate-950", icon: "!", title: "Object near the zone" },
-  WARN: { bg: "bg-red-600 animate-[pulse_1.6s_ease-in-out_infinite]", icon: "⚠", title: "Too close to the heater" },
-  VERIFYING: { bg: "bg-red-700", icon: "⏻", title: "Power cut sent · verifying" },
-  OFF_CONFIRMED: { bg: "bg-sky-700", icon: "⏻", title: "Heater OFF — confirmed" },
-  OFF_UNCONFIRMED: {
-    bg: "bg-red-600 animate-[flash_0.8s_steps(2)_infinite]",
-    icon: "⚠",
-    title: "Shutoff NOT confirmed — check the heater now",
-  },
-  UNKNOWN: { bg: "stripes bg-slate-700", icon: "?", title: "UNKNOWN — not safe" },
+type Tone = "clear" | "watch" | "warn" | "verify" | "off" | "alarm" | "unknown";
+
+const TONE: Record<SafetyState, Tone> = {
+  CLEAR: "clear",
+  WATCH: "watch",
+  WARN: "warn",
+  VERIFYING: "verify",
+  OFF_CONFIRMED: "off",
+  OFF_UNCONFIRMED: "alarm",
 };
 
-function CountdownRing({ seconds, total }: { seconds: number; total: number }) {
-  const r = 26;
-  const c = 2 * Math.PI * r;
-  const frac = Math.max(0, Math.min(1, seconds / Math.max(total, 0.1)));
-  return (
-    <div className="relative h-16 w-16 shrink-0" aria-label={`${Math.ceil(seconds)} seconds`}>
-      <svg viewBox="0 0 64 64" className="h-16 w-16 -rotate-90">
-        <circle cx="32" cy="32" r={r} fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="6" />
-        <circle
-          cx="32"
-          cy="32"
-          r={r}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="6"
-          strokeLinecap="round"
-          strokeDasharray={c}
-          strokeDashoffset={c * (1 - frac)}
-          style={{ transition: "stroke-dashoffset 0.25s linear" }}
-        />
-      </svg>
-      <span className="absolute inset-0 flex items-center justify-center text-xl font-black tabular-nums">
-        {Math.ceil(seconds)}
-      </span>
-    </div>
-  );
-}
+const LOOK: Record<Tone, { icon: IconName; title: string }> = {
+  clear: { icon: "check", title: "Zone clear" },
+  watch: { icon: "near", title: "Something is near" },
+  warn: { icon: "alert", title: "Too close to the heater" },
+  verify: { icon: "power", title: "Power cut, checking" },
+  off: { icon: "power", title: "Heater off, confirmed" },
+  alarm: { icon: "alert", title: "Not confirmed: check the heater" },
+  unknown: { icon: "question", title: "Unknown, not safe" },
+};
 
+/** The signature: one sign whose status block, words and countdown change with the safety state. */
 export function StateBanner({
   state,
   stale,
   connected,
-  countdownTotal,
 }: {
   state: StateMessage | null;
   stale: boolean;
   connected: boolean;
-  countdownTotal: number;
 }) {
+  const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
-  const degraded = !state || stale || state.degraded.some((f) => f !== "API_DOWN");
-  const monitoring = state && ["CLEAR", "WATCH", "WARN"].includes(state.state);
-  const key: SafetyState | "UNKNOWN" = !state || stale ? "UNKNOWN" : degraded && monitoring ? "UNKNOWN" : state.state;
-  const look = LOOK[key];
 
-  let detail = state?.reason ?? "";
-  if (!state || stale) detail = connected ? "Waiting for live data…" : "Backend disconnected — reconnecting…";
-  else if (key === "UNKNOWN") detail = state.degraded.map(humanFlag).join(" · ") + (state.reason ? ` — ${state.reason}` : "");
-  const worst = state?.objects[0];
-  if (state && !stale && (key === "WARN" || key === "WATCH") && worst) {
-    detail = `${worst.label} ${worst.distance_in.toFixed(1)} in from ${worst.side} · needs ${worst.required_in.toFixed(0)} in`;
-  } else if (state && !stale && key === "CLEAR") {
+  const live = state && !stale ? state : null;
+  const blind = live ? live.degraded.some((f) => f !== "API_DOWN") : true;
+  const monitoring = live ? ["CLEAR", "WATCH", "WARN"].includes(live.state) : false;
+  const tone: Tone = !live ? "unknown" : blind && monitoring ? "unknown" : TONE[live.state];
+  const look = LOOK[tone];
+  const worst = live?.objects[0];
+
+  let detail: string;
+  if (!live) {
+    detail = connected ? "Waiting for live data." : "Lost the server. Reconnecting.";
+  } else if (tone === "unknown") {
+    detail = capitalize(live.degraded.filter((f) => f !== "API_DOWN").map(humanFlag).join(", ")) + ".";
+  } else if ((tone === "warn" || tone === "watch") && worst) {
+    detail = `${capitalize(worst.label)}, ${worst.distance_in.toFixed(1)} in from the ${worst.side}. Needs ${worst.required_in.toFixed(0)} in.`;
+  } else if (tone === "clear") {
     detail = worst
-      ? `Closest: ${worst.label}, ${worst.distance_in.toFixed(1)} in from the ${worst.side}`
-      : "Nothing near the heater";
+      ? `Closest: ${worst.label}, ${worst.distance_in.toFixed(1)} in from the ${worst.side}.`
+      : "Nothing near the heater.";
+  } else if (tone === "verify") {
+    detail = `${capitalize(live.reason)}.`;
+  } else if (tone === "off") {
+    detail = live.signals.indicator_off ? "Power is under 5 W and the light is dark." : "Power is under 5 W.";
+  } else {
+    detail = "Power did not drop after retrying. Go to the heater now.";
   }
-  const showCountdown = state && !stale && state.countdown_s !== null && ["WARN", "UNKNOWN", "VERIFYING"].includes(key);
+
+  const countLabel = tone === "warn" ? "Power off in" : tone === "verify" ? "Checking" : tone === "unknown" ? "Fail-safe in" : null;
+  const showCount = live && countLabel && live.countdown_s !== null;
+  const latched = live && (live.state === "OFF_CONFIRMED" || live.state === "OFF_UNCONFIRMED");
+  const signalsPassed = live ? [live.signals.power_off, live.signals.indicator_off].filter((v) => v === true).length : 0;
 
   const onReset = async () => {
     setResetError(null);
+    setResetting(true);
     try {
       await api.reset();
     } catch (e) {
       setResetError((e as Error).message);
+    } finally {
+      setResetting(false);
     }
   };
 
+  const resetHint = !live
+    ? ""
+    : live.can_reset
+      ? "The zone is clear."
+      : !live.camera.healthy
+        ? "Needs a working camera."
+        : "Clear the zone first.";
+
   return (
-    <div className={`flex items-center gap-5 rounded-xl px-6 py-4 shadow-lg ${look.bg}`} role="status" aria-live="assertive">
-      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-black/25 text-4xl font-black">
-        {look.icon}
+    <section className="sign fit:h-28" data-tone={tone} role="status" aria-live="assertive">
+      <span className="sign__mark">
+        <Icon name={look.icon} size={44} strokeWidth={2.5} />
       </span>
-      <div className="min-w-0 flex-1">
-        <div className="text-3xl font-black tracking-tight">{look.title}</div>
-        <div className="truncate text-xl font-medium opacity-95">{detail}</div>
+      <div className="min-w-0">
+        <h1 className="sign__title">{look.title}</h1>
+        <p className="sign__detail">{detail}</p>
       </div>
-      {showCountdown && state && (
-        <div className="flex items-center gap-3">
-          <span className="text-right text-sm font-semibold uppercase leading-tight opacity-90">
-            {key === "WARN" ? "power off in" : key === "VERIFYING" ? "verifying" : "fail-safe in"}
-          </span>
-          <CountdownRing seconds={state.countdown_s ?? 0} total={key === "UNKNOWN" ? 30 : key === "VERIFYING" ? 5 : countdownTotal} />
-        </div>
-      )}
-      {state && (state.state === "OFF_CONFIRMED" || state.state === "OFF_UNCONFIRMED") && (
-        <div className="flex flex-col items-end gap-1">
-          <button
-            onClick={onReset}
-            disabled={!state.can_reset || stale}
-            className="rounded-lg bg-white px-5 py-3 text-lg font-bold text-slate-900 shadow disabled:cursor-not-allowed disabled:opacity-40"
-            title={state.can_reset ? "Resume monitoring" : "Clear the zone first — reset is refused while anything is too close"}
-          >
-            Reset
-          </button>
-          <span className="text-xs opacity-90">
-            {state.can_reset
-              ? "Zone clear — you may reset"
-              : !state.camera.healthy
-                ? "Camera must be working to reset"
-                : "Clear the zone to enable reset"}
-          </span>
-          {resetError && <span className="text-xs font-semibold">{resetError}</span>}
-        </div>
-      )}
-    </div>
+      <div className="sign__side">
+        {showCount && (
+          <div className="sign__count plate">
+            <span className="sign__count-label">{countLabel}</span>
+            <span className="figure num">{Math.ceil(live.countdown_s ?? 0)} s</span>
+          </div>
+        )}
+        {latched && live && (
+          <>
+            {live.state === "OFF_CONFIRMED" && (
+              <div className="sign__count plate">
+                <span className="sign__count-label">Checks passed</span>
+                <span className="figure num">
+                  {signalsPassed}/{live.indicator_configured ? 2 : 1}
+                </span>
+              </div>
+            )}
+            <div className="flex flex-col justify-center gap-1">
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={onReset}
+                disabled={!live.can_reset || resetting}
+                aria-busy={resetting}
+              >
+                {resetting ? "Resetting" : "Reset"}
+              </button>
+              <span className="text-xs font-medium">{resetError ?? resetHint}</span>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
   );
 }

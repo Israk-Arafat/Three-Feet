@@ -1,5 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import "@fontsource/chivo-mono/400.css";
+import "@fontsource/chivo-mono/500.css";
+import "@fontsource/chivo-mono/800.css";
 import App from "./App";
 import "./index.css";
 

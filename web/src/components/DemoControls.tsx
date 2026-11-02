@@ -1,15 +1,11 @@
 import { useState, type ReactNode } from "react";
 import { api } from "../lib/api";
 import type { AppConfig } from "../types";
+import { Icon } from "./Icon";
 
-function Btn({ children, onClick, active }: { children: ReactNode; onClick: () => void; active?: boolean }) {
+function Toggle({ pressed, onClick, children }: { pressed?: boolean; onClick: () => void; children: ReactNode }) {
   return (
-    <button
-      onClick={onClick}
-      className={`rounded-md px-2.5 py-1 text-xs font-semibold ${
-        active ? "bg-yellow-400 text-slate-950" : "bg-slate-700 text-slate-100 hover:bg-slate-600"
-      }`}
-    >
+    <button type="button" className="btn btn--sm" aria-pressed={pressed} onClick={onClick}>
       {children}
     </button>
   );
@@ -17,9 +13,9 @@ function Btn({ children, onClick, active }: { children: ReactNode; onClick: () =
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className="w-24 text-xs text-slate-400">{label}</span>
-      {children}
+    <div className="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-2 border-t border-rule py-2">
+      <span className="text-xs font-medium text-muted">{label}</span>
+      <div className="flex flex-wrap gap-2">{children}</div>
     </div>
   );
 }
@@ -49,75 +45,79 @@ export function DemoControls({ config }: { config: AppConfig }) {
 
   if (!open) {
     return (
-      <button
-        onClick={() => setOpen(true)}
-        className="fixed bottom-16 right-4 rounded-full bg-yellow-400 px-3 py-1.5 text-xs font-bold text-slate-950 shadow-lg"
-      >
-        Demo controls
+      <button type="button" onClick={() => setOpen(true)} className="btn btn--sm fixed bottom-16 right-4 z-(--z-toast) shadow-card">
+        Fault tests
       </button>
     );
   }
 
   return (
-    <div className="fixed bottom-16 right-4 z-40 w-[440px] space-y-2 rounded-xl border border-yellow-400/60 bg-slate-950/95 p-3 shadow-2xl">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-black tracking-widest text-yellow-300">FAULT INJECTION / DEMO</span>
-        <button onClick={() => setOpen(false)} className="text-slate-400 hover:text-white">
-          ✕
+    <aside
+      aria-label="Fault injection"
+      className="fixed bottom-16 right-4 z-(--z-toast) w-[460px] max-w-[calc(100vw-2rem)] border-2 border-ink bg-paper-3 p-4 shadow-card"
+    >
+      <div className="mb-2 flex items-center justify-between">
+        <h2>Fault tests</h2>
+        <button type="button" className="btn btn--sm btn--icon" onClick={() => setOpen(false)} aria-label="Hide fault tests">
+          <Icon name="x" size={16} />
         </button>
       </div>
       <Row label="Camera">
-        <Btn active={cameraCut} onClick={run(() => api.demo.camera(!cameraCut), () => setCameraCut(!cameraCut))}>
+        <Toggle pressed={cameraCut} onClick={run(() => api.demo.camera(!cameraCut), () => setCameraCut(!cameraCut))}>
           {cameraCut ? "Restore feed" : "Cut feed"}
-        </Btn>
+        </Toggle>
         {sim && (
-          <Btn active={bumped} onClick={run(() => api.demo.bump(!bumped), () => setBumped(!bumped))}>
+          <Toggle pressed={bumped} onClick={run(() => api.demo.bump(!bumped), () => setBumped(!bumped))}>
             {bumped ? "Un-bump" : "Bump camera"}
-          </Btn>
+          </Toggle>
         )}
       </Row>
       <Row label="Meta API">
-        <Btn active={apiDown} onClick={run(() => api.demo.api(!apiDown), () => setApiDown(!apiDown))}>
+        <Toggle pressed={apiDown} onClick={run(() => api.demo.api(!apiDown), () => setApiDown(!apiDown))}>
           {apiDown ? "Restore API" : "Simulate outage"}
-        </Btn>
+        </Toggle>
       </Row>
       {dryrun && (
-        <Row label="Dry-run plug">
-          <Btn active={stuck} onClick={run(() => api.demo.plug(stuck ? "unstuck" : "stuck"), () => setStuck(!stuck))}>
+        <Row label="Test plug">
+          <Toggle pressed={stuck} onClick={run(() => api.demo.plug(stuck ? "unstuck" : "stuck"), () => setStuck(!stuck))}>
             {stuck ? "Unstick relay" : "Stuck relay"}
-          </Btn>
-          <Btn
-            active={unreachable}
+          </Toggle>
+          <Toggle
+            pressed={unreachable}
             onClick={run(() => api.demo.plug(unreachable ? "reachable" : "unreachable"), () => setUnreachable(!unreachable))}
           >
             {unreachable ? "Reconnect" : "Unreachable"}
-          </Btn>
-          <Btn onClick={run(() => api.demo.plug("power_on"))}>Person turns heater on</Btn>
+          </Toggle>
+          <Toggle onClick={run(() => api.demo.plug("power_on"))}>Heater back on</Toggle>
         </Row>
       )}
       {sim && (
         <>
-          <Row label="Autoplay">
-            <Btn active={!autoplay} onClick={run(() => api.demo.sim({ autoplay: !autoplay }), () => setAutoplay(!autoplay))}>
+          <Row label="Script">
+            <Toggle pressed={!autoplay} onClick={run(() => api.demo.sim({ autoplay: !autoplay }), () => setAutoplay(!autoplay))}>
               {autoplay ? "Pause script" : "Resume script"}
-            </Btn>
+            </Toggle>
           </Row>
           <Row label="Blanket">
-            <Btn onClick={run(() => api.demo.sim({ object: "blanket", spot: "near" }))}>Too close</Btn>
-            <Btn onClick={run(() => api.demo.sim({ object: "blanket", spot: "home" }))}>Away</Btn>
+            <Toggle onClick={run(() => api.demo.sim({ object: "blanket", spot: "near" }))}>Too close</Toggle>
+            <Toggle onClick={run(() => api.demo.sim({ object: "blanket", spot: "home" }))}>Away</Toggle>
           </Row>
           <Row label="Box">
-            <Btn onClick={run(() => api.demo.sim({ object: "box", spot: "watch" }))}>Near miss</Btn>
-            <Btn onClick={run(() => api.demo.sim({ object: "box", spot: "near" }))}>Too close</Btn>
-            <Btn onClick={run(() => api.demo.sim({ object: "box", spot: "home" }))}>Away</Btn>
+            <Toggle onClick={run(() => api.demo.sim({ object: "box", spot: "watch" }))}>Near miss</Toggle>
+            <Toggle onClick={run(() => api.demo.sim({ object: "box", spot: "near" }))}>Too close</Toggle>
+            <Toggle onClick={run(() => api.demo.sim({ object: "box", spot: "home" }))}>Away</Toggle>
           </Row>
-          <Row label="Unknown obj.">
-            <Btn onClick={run(() => api.demo.sim({ object: "shoe", spot: "near" }))}>Drop near back</Btn>
-            <Btn onClick={run(() => api.demo.sim({ object: "shoe", spot: "home" }))}>Remove</Btn>
+          <Row label="Unknown thing">
+            <Toggle onClick={run(() => api.demo.sim({ object: "shoe", spot: "near" }))}>Drop at back</Toggle>
+            <Toggle onClick={run(() => api.demo.sim({ object: "shoe", spot: "home" }))}>Remove</Toggle>
           </Row>
         </>
       )}
-      {error && <p className="text-xs text-red-300">{error}</p>}
-    </div>
+      {error && (
+        <p role="alert" className="mt-2 text-xs text-state-warn">
+          {error}
+        </p>
+      )}
+    </aside>
   );
 }
