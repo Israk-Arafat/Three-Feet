@@ -406,6 +406,9 @@ class Engine:
             elif action is Action.DEGRADED_ALERT:
                 self.log("degraded", "Degraded: " + ", ".join(d.degraded).replace("_", " ").lower(),
                          {"degraded": list(d.degraded)})
+            elif action is Action.POWER_RESTORED:
+                self.log("alarm", "Heater switched back on without a reset; monitoring resumed",
+                         {"signals": d.signals})
 
     def _track_closest(self, d: Decision) -> None:
         """Closest approach while warning, so the shutoff log and report cite the worst moment, not the first."""

@@ -121,6 +121,18 @@ def test_latched_off_until_reset_and_reset_requires_clear_zone():
     assert sm.step(obs(101)).state is State.CLEAR
 
 
+def test_power_back_on_while_latched_resumes_monitoring():
+    sm = SafetyStateMachine(CFG)
+    drive_to_shutoff(sm)
+    sm.step(obs(11, blanket(-10), power=0.0, indicator=False))
+    assert sm.state is State.OFF_CONFIRMED
+    # Someone switches the heater on with the blanket still there: never keep saying "off".
+    d = sm.step(obs(20, blanket(-10), power=ON, indicator=True))
+    assert Action.POWER_RESTORED in d.actions
+    assert d.state is State.WARN and Action.WARN_ALERT in d.actions
+    assert sm.step(obs(30, blanket(-10))).state is State.VERIFYING
+
+
 def test_camera_lost_is_unknown_and_failsafe_cuts_power():
     sm = SafetyStateMachine(CFG)
     d = sm.step(obs(0, camera=False))

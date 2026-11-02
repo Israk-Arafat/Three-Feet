@@ -34,6 +34,7 @@ class Action(StrEnum):
     CONFIRMED = "CONFIRMED"
     ALARM = "ALARM"  # shutoff could not be confirmed: a person must check the heater now
     DEGRADED_ALERT = "DEGRADED_ALERT"
+    POWER_RESTORED = "POWER_RESTORED"  # heater drew power again while latched off; monitoring resumed
 
 
 @dataclass(frozen=True)
@@ -135,9 +136,15 @@ class SafetyStateMachine:
             if self._confirmed(signals):
                 self._enter(State.OFF_CONFIRMED, "Shutoff confirmed (late)")
                 actions.append(Action.CONFIRMED)
-        elif self.state is State.OFF_CONFIRMED:
+        elif self.state is State.OFF_CONFIRMED and signals["power_off"] is not False:
             pass  # latched until a human resets
         else:
+            if self.state is State.OFF_CONFIRMED:
+                # The plug meter shows power again without a reset: never keep claiming "off".
+                self._enter(State.CLEAR, "Heater switched back on without a reset")
+                self._warn_since = self._verify_started = None
+                self._retries = 0
+                actions.append(Action.POWER_RESTORED)
             countdown, worst = self._step_monitoring(obs, blind, actions)
 
         return Decision(obs.t, self.state, self._reason, tuple(actions), countdown,
