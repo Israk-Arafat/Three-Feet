@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "three-feet"
+version = "0.1.0"
+description = "Space-heater clearance helper: phone camera + Meta SAM 3.1 / Muse Spark / Muse Wonder + verified smart-plug shutoff."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    "meta-sam-parser>=0.1.0",
+    "openai>=1.40",
+    "httpx>=0.27",
+    "numpy>=1.26",
+    "opencv-contrib-python>=4.8",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+kasa = ["python-kasa>=0.7"]
+
+[tool.setuptools.packages.find]
+include = ["three_feet*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
