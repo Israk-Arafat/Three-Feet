@@ -31,6 +31,21 @@ async def main() -> int:
 
     email = input("Cync email: ").strip()
     password = getpass.getpass("Cync password (not saved): ")
+    try:
+        return await login_and_list(email, password, Auth, Cync, AuthFailedError, TwoFactorRequiredError)
+    except Exception as exc:
+        text = str(exc)
+        if "CERTIFICATE_VERIFY_FAILED" in text or "Cannot connect to host" in text:
+            print("\nCould not reach Cync's servers from this network. A corporate network or security agent "
+                  "(for example Zscaler) is intercepting or blocking the connection. Run this on a personal "
+                  "laptop and network instead.")
+            return 1
+        raise
+
+
+async def login_and_list(email, password, Auth, Cync, AuthFailedError, TwoFactorRequiredError) -> int:
+    import aiohttp
+
     async with aiohttp.ClientSession() as session:
         auth = Auth(session, username=email, password=password)
         try:
