@@ -78,11 +78,19 @@ class CyncPlug:
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._loop.run_forever, name="cync-loop", daemon=True)
         self._thread.start()
-        asyncio.run_coroutine_threadsafe(self._connect(), self._loop).result(timeout=connect_timeout_s)
+        try:
+            asyncio.run_coroutine_threadsafe(self._connect(), self._loop).result(timeout=connect_timeout_s)
+        except Exception:
+            self.close()
+            raise
 
     # -- PowerSwitch ----------------------------------------------------------------------------
     def turn_off(self) -> None:
         asyncio.run_coroutine_threadsafe(asyncio.wait_for(self._off(), self.timeout_s), self._loop).result(
+            timeout=self.timeout_s + 1)
+
+    def turn_on_for_test(self) -> None:
+        asyncio.run_coroutine_threadsafe(asyncio.wait_for(self._on_for_test(), self.timeout_s), self._loop).result(
             timeout=self.timeout_s + 1)
 
     def status(self) -> PlugStatus:
@@ -159,6 +167,16 @@ class CyncPlug:
         except (AttributeError, NotImplementedError) + _unsupported():
             # Device type pycync does not know yet: send the same power command it uses for plugs.
             await self._cync._command_client.set_power_state(device, False)
+        self._request_states()
+
+    async def _on_for_test(self) -> None:
+        device = self._device
+        if device is None:
+            raise ConnectionError("Cync plug not connected")
+        try:
+            await device.turn_on()
+        except (AttributeError, NotImplementedError) + _unsupported():
+            await self._cync._command_client.set_power_state(device, True)
         self._request_states()
 
 
