@@ -28,6 +28,7 @@ Copy-Item .env.example .env      # then add MODEL_API_KEY and the phone camera U
 | View the phone camera (press S to save snapshots to `data/photos/`) | `.\.venv\Scripts\python.exe scripts\view_stream.py --source phone` |
 | Print ArUco markers | `.\.venv\Scripts\python.exe tools\print_markers.py` |
 | Calibrate the floor and mark the heater | `.\.venv\Scripts\python.exe scripts\calibrate.py --image data\photos\setup.jpg --layout data\markers_layout.example.json` |
+| Teach it the heater's power light (on, then off) | `.\.venv\Scripts\python.exe scripts\calibrate_light.py --source phone` |
 | Extract the clearance rule from a manual | `.\.venv\Scripts\python.exe scripts\extract_rules.py data\manuals\heater.pdf` |
 | Run SAM 3.1 on photos, with distances if calibrated | `.\.venv\Scripts\python.exe scripts\sam_photos.py data\photos --spark` |
 
