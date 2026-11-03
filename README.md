@@ -13,11 +13,14 @@ It has unit and end-to-end tests but has **not yet been validated** against real
 
 ## Quickstart (development)
 
-Requires Python 3.11+ (developed on 3.14) on Windows.
+Requires Python 3.11+ (developed on 3.15) on Windows.
+
 
 ```powershell
-py -3.14 -m venv .venv
+$env:PYYAML_FORCE_LIBYAML = "0"
+py -3.15 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+Remove-Item Env:\PYYAML_FORCE_LIBYAML
 Copy-Item .env.example .env      # then add MODEL_API_KEY and the phone camera URL
 .\.venv\Scripts\python.exe -m pytest
 ```
