@@ -1,10 +1,11 @@
-"""Check the configured power switch: read its status, and optionally cut power and time the confirmation.
+"""Check the configured power switch and optionally send a manual on/off command.
 
     python scripts/plug_test.py              # status for 3 s (PLUG_KIND / PLUG_NAME from .env)
     python scripts/plug_test.py --off        # cut power, then report how long until the plug shows it off
+    python scripts/plug_test.py --on         # turn on, then report how long until the plug shows it on
 
-Test with a lamp plugged in, not the heater. Three Feet never turns power on: switch it back on with the
-plug's button or its app.
+Use --on only with a lamp. This manual test utility can energize the connected device; the live safety
+engine remains off-only.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from three_feet.config import get_settings  # noqa: E402
-from three_feet.safety.actuator import PlugStatus, make_switch  # noqa: E402
+from three_feet.safety.actuator import DryRunPlug, PlugStatus, make_switch  # noqa: E402
 
 
 def describe(s: PlugStatus) -> str:
@@ -31,10 +32,20 @@ def is_off(s: PlugStatus, off_w: float) -> bool:
     return s.on is False
 
 
+def is_on(s: PlugStatus, on_w: float) -> bool:
+    if s.on is True:
+        return True
+    if s.metering and s.power_w is not None:
+        return s.power_w >= on_w
+    return False
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--kind", help="override PLUG_KIND (dryrun | cync)")
-    ap.add_argument("--off", action="store_true", help="cut power and time the confirmation")
+    action = ap.add_mutually_exclusive_group()
+    action.add_argument("--off", action="store_true", help="cut power and time the confirmation")
+    action.add_argument("--on", action="store_true", help="turn on for manual plug testing; use a lamp only")
     ap.add_argument("--seconds", type=float, default=10.0)
     args = ap.parse_args()
 
@@ -49,20 +60,35 @@ def main() -> int:
         while time.time() < end:
             print("  ", describe(switch.status()))
             time.sleep(1)
-        if not args.off:
+        if not args.off and not args.on:
             return 0
-        print("Sending OFF ...")
+        if args.off:
+            print("Sending OFF ...")
+        else:
+            print("Sending ON (manual test; use a lamp only) ...")
         sent = time.perf_counter()
-        switch.turn_off()
+        if args.off:
+            switch.turn_off()
+        elif isinstance(switch, DryRunPlug):
+            switch.simulate_power_on()
+        else:
+            turn_on = getattr(switch, "turn_on_for_test", None)
+            if not callable(turn_on):
+                raise RuntimeError(f"{kind} plug does not support manual ON testing")
+            turn_on()
         print(f"  command returned after {time.perf_counter() - sent:.2f} s")
         end = time.time() + args.seconds
         while time.time() < end:
             st = switch.status()
-            if is_off(st, s.off_power_w):
+            if args.off and is_off(st, s.off_power_w):
                 print(f"  confirmed off after {time.perf_counter() - sent:.2f} s ({describe(st)})")
                 return 0
+            if args.on and is_on(st, s.off_power_w):
+                print(f"  confirmed on after {time.perf_counter() - sent:.2f} s ({describe(st)})")
+                return 0
             time.sleep(0.25)
-        print(f"  NOT confirmed off within {args.seconds:.0f} s ({describe(switch.status())})")
+        state = "off" if args.off else "on"
+        print(f"  NOT confirmed {state} within {args.seconds:.0f} s ({describe(switch.status())})")
         return 1
     finally:
         close = getattr(switch, "close", None)

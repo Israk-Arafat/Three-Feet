@@ -45,6 +45,7 @@ To set up the Cync plug:
 1. Install the extra: `.\.venv\Scripts\python.exe -m pip install -e ".[cync]"`.
 2. Close the Cync phone app (Cync allows one connection per account), then log in once: `.\.venv\Scripts\python.exe scripts\cync_login.py`. It asks for the emailed code, saves tokens (never the password) to the git-ignored `data/cync_token.json`, and lists your device names.
 3. With a lamp plugged in, check it: `.\.venv\Scripts\python.exe scripts\plug_test.py --off`.
+4. To restore the test lamp from the CLI: `.\.venv\Scripts\python.exe scripts\plug_test.py --on`. Use `--on` only with a lamp; it energizes the connected device. The live safety engine remains off-only.
 
 The Cync driver uses the unofficial [pycync](https://github.com/Kinachi249/pycync) library through Cync's cloud. Set up the calibration's power-light check: without a meter it is the only independent confirmation.
 

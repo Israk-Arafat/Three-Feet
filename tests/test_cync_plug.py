@@ -15,10 +15,15 @@ class FakePlug:  # named like pycync's class so pick_device recognizes it
     def __init__(self, name, is_on=True, online=True, device_id=1):
         self.name, self._on, self.is_online, self.device_id = name, is_on, online, device_id
         self.off_calls = 0
+        self.on_calls = 0
 
     @property
     def is_on(self):
         return self._on
+
+    async def turn_on(self):
+        self.on_calls += 1
+        self._on = True
 
     async def turn_off(self):
         self.off_calls += 1
@@ -100,6 +105,30 @@ def test_missing_login_has_clear_error(tmp_path):
         load_user(tmp_path / "missing.json")
 
 
+def test_connect_failure_closes_session_and_loop(monkeypatch):
+    created = {}
+
+    class FakeSession:
+        closed = False
+
+        async def close(self):
+            self.closed = True
+
+    async def fail_connect(self):
+        self._session = FakeSession()
+        created["session"] = self._session
+        created["thread"] = self._thread
+        raise RuntimeError("login missing")
+
+    monkeypatch.setattr(CyncPlug, "_connect", fail_connect)
+    with pytest.raises(RuntimeError, match="login missing"):
+        CyncPlug(connect_timeout_s=1)
+
+    created["thread"].join(timeout=1)
+    assert created["session"].closed
+    assert not created["thread"].is_alive()
+
+
 def test_status_reports_relay_without_meter():
     p = bare_plug(FakePlug("Heater", is_on=True))
     st = p.status()
@@ -119,12 +148,33 @@ def test_turn_off_uses_plug_api_then_requests_state():
     p._loop.call_soon_threadsafe(p._loop.stop)
 
 
+def test_turn_on_for_test_uses_plug_api_then_requests_state():
+    dev = FakePlug("Lamp", is_on=False)
+    p = bare_plug(dev)
+    p.turn_on_for_test()
+    assert dev.on_calls == 1
+    p._on_update({"x": dev})
+    assert p.status().on is True
+    time.sleep(0.05)
+    assert p._cync.state_requests >= 1
+    p._loop.call_soon_threadsafe(p._loop.stop)
+
+
 def test_turn_off_falls_back_for_unknown_device_type():
     dev = UnknownDevice()
     p = bare_plug(dev)
     p.turn_off()
     assert p._cync._command_client.calls == [(dev, False)]
     assert p.status().on is None  # state unknown: the safety logic will not count it as off
+    p._loop.call_soon_threadsafe(p._loop.stop)
+
+
+def test_turn_on_for_test_falls_back_for_unknown_device_type():
+    dev = UnknownDevice()
+    p = bare_plug(dev)
+    p.turn_on_for_test()
+    assert p._cync._command_client.calls == [(dev, True)]
+    assert p.status().on is None
     p._loop.call_soon_threadsafe(p._loop.stop)
 
 
