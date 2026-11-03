@@ -33,7 +33,6 @@ class Settings(BaseSettings):
     camera_verify_tls: bool = False
 
     plug_kind: str = "dryrun"
-    plug_host: str = ""
     plug_name: str = ""  # Cync: the plug's name in the Cync app (blank = the only plug on the account)
 
     default_clearance_in: float = 36.0

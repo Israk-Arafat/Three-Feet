@@ -39,12 +39,9 @@ Phone camera: the [Android IP Camera](https://github.com/DigitallyRefined/androi
 
 ### Smart plug
 
-| Plug | `.env` | How it confirms a shutoff |
-| --- | --- | --- |
-| Shelly Plug US (Gen 3/4) | `PLUG_KIND=shelly`, `PLUG_HOST=<ip>` | Power under 5 W from its meter, plus the power light seen by the camera |
-| GE Cync Indoor Plug | `PLUG_KIND=cync`, `PLUG_NAME=<name in the Cync app>` | The plug's own report that it is off, plus the power light seen by the camera (it has no power meter) |
+Three Feet controls a **GE Cync Indoor Plug** (`PLUG_KIND=cync`, `PLUG_NAME=<name in the Cync app>`). The plug has no power meter, so a shutoff is confirmed by the plug's own report that it is off plus the heater's power light going dark on camera. `PLUG_KIND=dryrun` is a simulated plug for the simulator and tests.
 
-To set up a GE Cync plug:
+To set up the Cync plug:
 1. Install the extra: `.\.venv\Scripts\python.exe -m pip install -e ".[cync]"`.
 2. Close the Cync phone app (Cync allows one connection per account), then log in once: `.\.venv\Scripts\python.exe scripts\cync_login.py`. It asks for the emailed code, saves tokens (never the password) to the git-ignored `data/cync_token.json`, and lists your device names.
 3. With a lamp plugged in, check it: `.\.venv\Scripts\python.exe scripts\plug_test.py --off`.
@@ -58,7 +55,7 @@ Build the web UI once (Node 20+), then run the server. Open `http://127.0.0.1:80
 ```powershell
 cd web; npm install; npm run build; cd ..
 .\.venv\Scripts\python.exe -m three_feet.app --source sim --demo     # simulated scene, no hardware or API key
-.\.venv\Scripts\python.exe -m three_feet.app --source phone --plug shelly --demo   # live
+.\.venv\Scripts\python.exe -m three_feet.app --source phone --plug cync --demo     # live
 .\.venv\Scripts\python.exe -m three_feet.app --source data\photos --demo           # replay photos with real API calls
 ```
 

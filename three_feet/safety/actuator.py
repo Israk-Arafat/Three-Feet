@@ -6,8 +6,6 @@ import time
 from dataclasses import dataclass
 from typing import Protocol
 
-import httpx
-
 
 @dataclass(frozen=True)
 class PlugStatus:
@@ -59,39 +57,11 @@ class DryRunPlug:
         return PlugStatus(True, self._on, power)
 
 
-class ShellyPlug:
-    """Shelly Gen2+ plug (e.g. Shelly Plug US) via its local RPC API."""
-
-    name = "shelly"
-
-    def __init__(self, host: str, switch_id: int = 0, timeout_s: float = 2.0) -> None:
-        self.base = host if host.startswith("http") else f"http://{host}"
-        self.switch_id = switch_id
-        self._client = httpx.Client(timeout=timeout_s)
-
-    def turn_off(self) -> None:
-        r = self._client.get(f"{self.base}/rpc/Switch.Set", params={"id": self.switch_id, "on": "false"})
-        r.raise_for_status()
-
-    def status(self) -> PlugStatus:
-        try:
-            r = self._client.get(f"{self.base}/rpc/Switch.GetStatus", params={"id": self.switch_id})
-            r.raise_for_status()
-            d = r.json()
-            return PlugStatus(True, bool(d.get("output")), float(d.get("apower", 0.0)))
-        except (httpx.HTTPError, ValueError):
-            return PlugStatus(False, None, None)
-
-
-def make_switch(kind: str, host: str = "", name: str = "") -> PowerSwitch:
+def make_switch(kind: str, name: str = "") -> PowerSwitch:
     if kind == "dryrun":
         return DryRunPlug()
-    if kind == "shelly":
-        if not host:
-            raise ValueError("Set PLUG_HOST for the Shelly plug")
-        return ShellyPlug(host)
     if kind == "cync":
         from .cync_plug import CyncPlug
 
         return CyncPlug(device_name=name)
-    raise ValueError(f"Unknown PLUG_KIND {kind!r} (dryrun | shelly | cync)")
+    raise ValueError(f"Unknown PLUG_KIND {kind!r} (dryrun | cync)")

@@ -55,7 +55,7 @@ One phone is enough. The plan switches from **two cameras with stereo** to **one
 | Original | New plan | Why |
 | --- | --- | --- |
 | Two cheap cameras with stereo | **One Android phone, overhead, with floor-plane homography from ArUco markers** | Stereo calibration, synchronization, and matching are risky with two days left. A homography gives true inches on the floor plane with a measurable error and works with the hardware you already have. |
-| ESP32 with the heater's IR remote | **Tier A: a smart plug with power metering** (Shelly Plug US (Gen 3/Gen 4) or Kasa EP25, about $15–25, rated 15 A). **Tier B:** ESP32 IR (only if you already have the parts and the heater has a remote). | The plug can cut power, and a **separate wattage reading** confirms the result. IR remotes usually **toggle** power, so sending "off" to a heater that is already off can **turn it on**. Tier B must check state before and after every IR command. |
+| ESP32 with the heater's IR remote | **Tier A: a GE Cync smart plug** (15 A; no power meter). **Tier B:** ESP32 IR (only if you already have the parts and the heater has a remote). | The plug can cut power and report that it is off; the camera seeing the power light go dark is the independent check. IR remotes usually **toggle** power, so sending "off" to a heater that is already off can **turn it on**. Tier B must check state before and after every IR command. |
 | Confirms off | **Two-signal confirmation:** (1) plug power draw is below 5 W, and (2) the camera sees the heater's indicator light or element go dark | The README requires independent confirmation. Two different physical signals justify the claim. |
 | Muse Wonder "keeps watch through the evening" | **Muse Wonder** extracts manual rules from the PDF and writes a **watch report and incident explanation** using tools. A **deterministic loop** keeps watch. | Do not use an LLM as the real-time safety loop. Use it where reasoning helps. |
 | Hard-coded object list | **Open-vocabulary loop:** Muse Spark names what it sees → SAM 3.1 segments those concepts → a **change-detection catch-all** flags anything unexplained in the zone as `UNKNOWN` | This uses the Muse Spark + SAM pairing that Meta's docs recommend. The catch-all means an unrecognized object still triggers an alert. |
@@ -94,7 +94,7 @@ One phone is enough. The plan switches from **two cameras with stereo** to **one
 
 - **Backend:** Python 3.11+, `opencv-contrib-python` (ArUco), `numpy`, `fastapi`, `uvicorn`, `openai` (Meta Model API is OpenAI-compatible at `https://api.meta.ai/v1`), `httpx`, `pydantic`, and Meta's SAM parser (`meta_sam_parser` in Python, or `@meta-sam/parser` in TypeScript).
   - ⚠️ **Do not write your own mask decoder.** The base85 payload uses a specific alphabet. Use Meta's parser.
-- **Plug:** Shelly uses a local HTTP RPC API (`/rpc/Switch.Set`, `/rpc/Switch.GetStatus` → `apower`). Kasa uses `python-kasa`.
+- **Plug:** GE Cync through its cloud (`pycync`): a one-time login saves tokens; the plug reports on/off but not watts.
 - **Frontend:** A Vite + React + TypeScript + Tailwind dashboard in `web/`, built and served by FastAPI. It shows the annotated MJPEG stream and a WebSocket state feed. **Skip Next.js.** See [FRONTEND_PLAN.md](./FRONTEND_PLAN.md).
 - **Alerts:** Browser notification, alarm sound, and spoken TTS (`speechSynthesis`) on the dashboard. Optional phone push through [ntfy](https://ntfy.sh).
 
@@ -116,7 +116,7 @@ three_feet/
     tracker.py           # IoU track IDs, temporal smoothing
   safety/
     state_machine.py     # CLEAR/WATCH/WARN/SHUTOFF_PENDING/OFF_UNCONFIRMED/OFF_CONFIRMED/DEGRADED
-    actuator.py          # ShellyPlug | KasaPlug | Esp32IR | DryRun
+    actuator.py          # DryRun (simulated) | cync_plug.py: GE Cync
     verifier.py          # watts + LED-ROI brightness (+ optional Spark check)
   eval/
     record.py            # save frames + events for replay
@@ -263,11 +263,10 @@ err_in = calib_rms_in + mask_edge_px * inches_per_px(at closest point) + paralla
 
 ## 7. Actuation and independent verification
 
-### Tier A — smart plug with energy metering (recommended; buy **tonight**)
+### Tier A — GE Cync smart plug (chosen; in hand)
 
-- **Shelly Plug US (Gen 3/Gen 4)** (local HTTP, no cloud needed) or **TP-Link Kasa EP25** (`python-kasa`).
-  - Confirm that it is rated **15 A / 1800 W**.
-- **Signal 1:** Plug power draw falls below 5 W within 3 s of the OFF command.
+- **GE Cync Indoor Plug** (rated **15 A**), controlled through Cync's cloud with the unofficial `pycync` library. It has **no power meter**.
+- **Signal 1:** the plug reports its relay is off after the OFF command (the plug's own report, labelled as such).
 - **Signal 2 (independent physical signal):**
   - The camera watches a small ROI on the heater's power LED, display, or glowing element.
   - Before calibration, record the ROI's brightness while on and while off. "Off" requires it to go dark.
@@ -325,7 +324,7 @@ Report the trial count, setup, and limitations. **Do not claim real-world safety
 ### Mon Nov 2 (now → ~11 p.m.) — "Pixels to inches"
 
 1. **(30 min)** Claim API credits and get an API key. Run `client.models.list()` and confirm that `sam-3.1`, `muse-spark-1.3`, and `muse-wonder-1.0` are listed.
-2. **(30 min)** **Order or buy the smart plug** (Shelly Plug US (Gen 3/Gen 4) or Kasa EP25) for same-day or next-day pickup. Download the heater's PDF manual.
+2. **(30 min)** **Get the smart plug** (done: GE Cync Indoor Plug). Download the heater's PDF manual.
 3. **(45 min)** Set up Android IP Camera, write `sources.py` (custom MJPEG reader), and show live frames in an OpenCV window. Mount the phone overhead.
 4. **(1.5 h)** Send one SAM 3.1 request on a frame ("blanket"), parse it with Meta's parser, and draw the mask. **Measure the latency.**
 5. **(2 h)** Calibrate with ArUco or tape clicks, build the distance map, and print *"blanket: 22.4 in ± 1.2"*. Check it with a tape measure.

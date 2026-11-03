@@ -24,7 +24,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
-kasa = ["python-kasa>=0.7"]
 cync = ["pycync>=0.6"]
 
 [tool.setuptools.packages.find]

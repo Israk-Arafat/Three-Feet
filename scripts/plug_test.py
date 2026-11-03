@@ -1,6 +1,6 @@
 """Check the configured power switch: read its status, and optionally cut power and time the confirmation.
 
-    python scripts/plug_test.py              # status for 10 s (PLUG_KIND / PLUG_HOST / PLUG_NAME from .env)
+    python scripts/plug_test.py              # status for 3 s (PLUG_KIND / PLUG_NAME from .env)
     python scripts/plug_test.py --off        # cut power, then report how long until the plug shows it off
 
 Test with a lamp plugged in, not the heater. Three Feet never turns power on: switch it back on with the
@@ -33,7 +33,7 @@ def is_off(s: PlugStatus, off_w: float) -> bool:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--kind", help="override PLUG_KIND (dryrun | shelly | cync)")
+    ap.add_argument("--kind", help="override PLUG_KIND (dryrun | cync)")
     ap.add_argument("--off", action="store_true", help="cut power and time the confirmation")
     ap.add_argument("--seconds", type=float, default=10.0)
     args = ap.parse_args()
@@ -42,7 +42,7 @@ def main() -> int:
     kind = args.kind or s.plug_kind
     print(f"Connecting to {kind} plug ...")
     t0 = time.perf_counter()
-    switch = make_switch(kind, s.plug_host, s.plug_name)
+    switch = make_switch(kind, s.plug_name)
     print(f"Connected in {time.perf_counter() - t0:.1f} s")
     try:
         end = time.time() + 3

@@ -1,7 +1,7 @@
 """FastAPI server: WebSocket state, annotated MJPEG stream, REST commands, and the built dashboard.
 
     python -m three_feet.app --source sim --demo                  # no hardware, no API key needed
-    python -m three_feet.app --source phone --plug shelly --demo  # live
+    python -m three_feet.app --source phone --plug cync --demo    # live
     python -m three_feet.app --source data/photos --demo          # replay photos (real API calls)
 """
 
@@ -106,7 +106,7 @@ def build_engine(source_spec: str, plug_kind: str, demo: bool) -> tuple[Engine, 
              if calib and calib.indicator_roi and calib.indicator_threshold is not None else None)
     perception = (MetaPerception(SamClient(client, meter), SparkClient(client, meter), meter)
                   if client else NullPerception())
-    engine = Engine(source, perception, make_switch(plug_kind, s.plug_host, s.plug_name), s, calib=calib, rule=rule,
+    engine = Engine(source, perception, make_switch(plug_kind, s.plug_name), s, calib=calib, rule=rule,
                     probe=probe, wonder=wonder, meter=meter, mode="replay" if path.is_dir() else "live",
                     demo=demo, source_label=source_spec)
     if calib is None:
@@ -375,7 +375,7 @@ def main() -> None:
 
     ap = argparse.ArgumentParser(description="Three Feet server")
     ap.add_argument("--source", default="sim", help="sim | phone | <mjpeg url> | <webcam index> | <photo folder>")
-    ap.add_argument("--plug", default=None, help="dryrun | shelly (default: PLUG_KIND from .env)")
+    ap.add_argument("--plug", default=None, help="dryrun | cync (default: PLUG_KIND from .env)")
     ap.add_argument("--demo", action="store_true", help="enable fault-injection controls")
     ap.add_argument("--no-autoplay", action="store_true", help="sim: start with the scripted demo paused")
     ap.add_argument("--host", default="127.0.0.1")
