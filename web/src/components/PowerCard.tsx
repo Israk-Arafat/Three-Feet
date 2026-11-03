@@ -21,27 +21,34 @@ export function PowerCard({ state, className = "" }: { state: StateMessage | nul
   const shutting = state ? ["VERIFYING", "OFF_CONFIRMED", "OFF_UNCONFIRMED"].includes(state.state) : false;
   const total = state?.indicator_configured ? 2 : 1;
   const passed = s ? [s.power_off, s.indicator_off].filter((v) => v === true).length : 0;
-  const plugNote = p ? `Plug: ${p.plug === "dryrun" ? "simulated" : p.plug}` : undefined;
+  const plugNote = p ? `Plug: ${p.plug === "dryrun" ? "simulated" : p.plug}${p.metering ? "" : ", no meter"}` : undefined;
+  const metering = p?.metering ?? true;
+  const headline = !p?.reachable ? "No reading" : metering ? watts(p.watts) : p.on === null ? "Unknown" : p.on ? "On" : "Off";
 
   return (
     <Panel title="Heater power" note={plugNote} className={className}>
       <div className="flex items-end justify-between gap-4">
         <div>
-          <div className="num whitespace-nowrap text-4xl font-extrabold leading-none">{p?.reachable ? watts(p.watts) : "No reading"}</div>
+          <div className="num whitespace-nowrap text-4xl font-extrabold leading-none">{headline}</div>
           <div className={`mt-1 text-sm font-medium ${!p?.reachable ? "text-state-warn" : "text-muted"}`}>
-            {!p?.reachable ? "Plug unreachable" : p.on ? "Plug on" : "Plug off"}
+            {!p?.reachable ? "Plug unreachable" : metering ? (p.on ? "Plug on" : "Plug off") : "As the plug reports it"}
           </div>
         </div>
-        <div className="w-1/2">
-          <Sparkline values={p?.history ?? []} max={1600} />
-        </div>
+        {metering && (
+          <div className="w-1/2">
+            <Sparkline values={p?.history ?? []} max={1600} />
+          </div>
+        )}
       </div>
       <div className="mt-4 border-t border-rule pt-3">
         <div className="mb-1 flex items-baseline justify-between text-sm">
           <h3>Shutoff check</h3>
           <span className="num font-medium text-muted">{shutting ? `${passed} of ${total} passed` : "Runs after a power cut"}</span>
         </div>
-        <CheckRow value={shutting ? (s?.power_off ?? null) : null} label="Power under 5 W, from the plug meter" />
+        <CheckRow
+          value={shutting ? (s?.power_off ?? null) : null}
+          label={metering ? "Power under 5 W, from the plug meter" : "Plug reports off (it has no power meter)"}
+        />
         <CheckRow
           value={shutting && state?.indicator_configured ? (s?.indicator_off ?? null) : null}
           label={state?.indicator_configured ? "Power light dark, from the camera" : "Power light check not set up"}

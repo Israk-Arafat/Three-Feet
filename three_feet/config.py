@@ -12,6 +12,7 @@ DATA_DIR = REPO_ROOT / "data"
 RUNS_DIR = REPO_ROOT / "runs"
 RULES_PATH = REPO_ROOT / "rules" / "heater_rules.json"
 CALIBRATION_PATH = DATA_DIR / "calibration.json"
+CYNC_TOKEN_PATH = DATA_DIR / "cync_token.json"
 
 
 class Settings(BaseSettings):
@@ -33,6 +34,7 @@ class Settings(BaseSettings):
 
     plug_kind: str = "dryrun"
     plug_host: str = ""
+    plug_name: str = ""  # Cync: the plug's name in the Cync app (blank = the only plug on the account)
 
     default_clearance_in: float = 36.0
     watch_margin_in: float = 6.0

@@ -33,6 +33,20 @@ Copy-Item .env.example .env      # then add MODEL_API_KEY and the phone camera U
 
 Phone camera: the [Android IP Camera](https://github.com/DigitallyRefined/android-ip-camera) app. Set `CAMERA_URL=https://PHONE_IP:4444/video/mjpeg` and the app's username and password in `.env`.
 
+### Smart plug
+
+| Plug | `.env` | How it confirms a shutoff |
+| --- | --- | --- |
+| Shelly Plug US (Gen 3/4) | `PLUG_KIND=shelly`, `PLUG_HOST=<ip>` | Power under 5 W from its meter, plus the power light seen by the camera |
+| GE Cync Indoor Plug | `PLUG_KIND=cync`, `PLUG_NAME=<name in the Cync app>` | The plug's own report that it is off, plus the power light seen by the camera (it has no power meter) |
+
+To set up a GE Cync plug:
+1. Install the extra: `.\.venv\Scripts\python.exe -m pip install -e ".[cync]"`.
+2. Close the Cync phone app (Cync allows one connection per account), then log in once: `.\.venv\Scripts\python.exe scripts\cync_login.py`. It asks for the emailed code, saves tokens (never the password) to the git-ignored `data/cync_token.json`, and lists your device names.
+3. With a lamp plugged in, check it: `.\.venv\Scripts\python.exe scripts\plug_test.py --off`.
+
+The Cync driver uses the unofficial [pycync](https://github.com/Kinachi249/pycync) library through Cync's cloud. Set up the calibration's power-light check: without a meter it is the only independent confirmation.
+
 ### Dashboard
 
 Build the web UI once (Node 20+), then run the server. Open `http://127.0.0.1:8000`. Add `?demo=1` to show the fault-injection panel.

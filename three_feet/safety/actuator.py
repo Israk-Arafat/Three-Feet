@@ -14,6 +14,7 @@ class PlugStatus:
     reachable: bool
     on: bool | None
     power_w: float | None
+    metering: bool = True  # False: the plug reports its relay state but cannot measure watts
 
 
 class PowerSwitch(Protocol):
@@ -82,11 +83,15 @@ class ShellyPlug:
             return PlugStatus(False, None, None)
 
 
-def make_switch(kind: str, host: str = "") -> PowerSwitch:
+def make_switch(kind: str, host: str = "", name: str = "") -> PowerSwitch:
     if kind == "dryrun":
         return DryRunPlug()
     if kind == "shelly":
         if not host:
             raise ValueError("Set PLUG_HOST for the Shelly plug")
         return ShellyPlug(host)
-    raise ValueError(f"Unknown PLUG_KIND {kind!r} (dryrun | shelly)")
+    if kind == "cync":
+        from .cync_plug import CyncPlug
+
+        return CyncPlug(device_name=name)
+    raise ValueError(f"Unknown PLUG_KIND {kind!r} (dryrun | shelly | cync)")

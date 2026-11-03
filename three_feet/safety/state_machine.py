@@ -54,8 +54,9 @@ class Observation:
     camera_ok: bool = True
     calibration_ok: bool = True
     api_ok: bool = True
-    power_w: float | None = None  # None = plug unreachable / unknown
+    power_w: float | None = None  # None = no meter reading (unreachable, or a plug without metering)
     indicator_on: bool | None = None  # None = no indicator ROI or unreadable
+    plug_on: bool | None = None  # relay state the plug reports; used when it has no power meter
 
 
 @dataclass(frozen=True)
@@ -162,7 +163,7 @@ class SafetyStateMachine:
     # -- internals ----------------------------------------------------------------
     def _step_monitoring(self, obs: Observation, blind: bool, actions: list[Action]):
         cfg = self.cfg
-        heater_maybe_on = obs.power_w is None or obs.power_w >= cfg.off_power_w
+        heater_maybe_on = self._signals(obs)["power_off"] is not True
 
         if blind:
             # Can't see: keep any running countdown (assume the object is still there).
@@ -242,8 +243,15 @@ class SafetyStateMachine:
         actions.append(Action.TURN_OFF)
 
     def _signals(self, obs: Observation) -> dict:
+        """power_off comes from the plug's meter when it has one, otherwise from the relay state it reports."""
+        if obs.power_w is not None:
+            power_off: bool | None = obs.power_w < self.cfg.off_power_w
+        elif obs.plug_on is not None:
+            power_off = not obs.plug_on
+        else:
+            power_off = None
         return {
-            "power_off": None if obs.power_w is None else obs.power_w < self.cfg.off_power_w,
+            "power_off": power_off,
             "indicator_off": None if obs.indicator_on is None else not obs.indicator_on,
         }
 
@@ -261,7 +269,7 @@ class SafetyStateMachine:
             flags.append("CALIBRATION_DRIFT")
         if not obs.api_ok:
             flags.append("API_DOWN")
-        if obs.power_w is None:
+        if obs.power_w is None and obs.plug_on is None:
             flags.append("PLUG_UNREACHABLE")
         return flags
 

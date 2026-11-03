@@ -59,7 +59,7 @@ export interface StateMessage {
   can_reset: boolean;
   objects: ZoneObjectInfo[];
   rule: Rule;
-  power: { reachable: boolean; on: boolean | null; watts: number | null; history: number[]; plug: string };
+  power: { reachable: boolean; on: boolean | null; watts: number | null; metering: boolean; history: number[]; plug: string };
   signals: { power_off: boolean | null; indicator_off: boolean | null };
   indicator_configured: boolean;
   camera: { fps: number; healthy: boolean; battery_pct: number | null; wifi_dbm: number | null };

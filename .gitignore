@@ -47,6 +47,7 @@ data/photos/
 data/recordings/
 data/manuals/
 data/calibration.json
+data/cync_token.json
 data/markers/
 runs/
 web/node_modules/

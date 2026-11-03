@@ -159,3 +159,43 @@ def test_calibration_drift_counts_as_blind():
     sm = SafetyStateMachine(CFG)
     d = sm.step(obs(0, calib=False))
     assert "CALIBRATION_DRIFT" in d.degraded and d.banner.startswith("UNKNOWN")
+
+
+# Plugs without a power meter (e.g. GE Cync) report only their relay state.
+def relay_obs(t, *objects, plug_on=True, indicator=True, camera=True):
+    return Observation(t, tuple(objects), camera, True, True, None, indicator, plug_on)
+
+
+def test_relay_only_plug_confirms_with_relay_and_light():
+    sm = SafetyStateMachine(CFG)
+    assert sm.step(relay_obs(0, blanket(-10))).state is State.WARN
+    assert sm.step(relay_obs(10, blanket(-10))).state is State.VERIFYING
+    d = sm.step(relay_obs(11, plug_on=False, indicator=True))
+    assert d.state is State.VERIFYING  # relay says off but the light is still on
+    d = sm.step(relay_obs(12, plug_on=False, indicator=False))
+    assert d.state is State.OFF_CONFIRMED and d.signals == {"power_off": True, "indicator_off": True}
+    assert "PLUG_UNREACHABLE" not in d.degraded
+
+
+def test_relay_only_plug_unknown_state_is_unreachable_and_never_confirms():
+    sm = SafetyStateMachine(CFG)
+    sm.step(relay_obs(0, blanket(-10)))
+    sm.step(relay_obs(10, blanket(-10)))
+    d = sm.step(relay_obs(11, plug_on=None, indicator=False))
+    assert d.state is State.VERIFYING and "PLUG_UNREACHABLE" in d.degraded
+
+
+def test_relay_only_failsafe_skipped_when_plug_reports_off():
+    sm = SafetyStateMachine(CFG)
+    sm.step(relay_obs(0, camera=False, plug_on=False))
+    assert sm.step(relay_obs(60, camera=False, plug_on=False)).state is State.CLEAR
+    assert sm.step(relay_obs(61, camera=False, plug_on=True)).countdown_s is not None
+
+
+def test_relay_only_power_restored_while_latched():
+    sm = SafetyStateMachine(CFG)
+    sm.step(relay_obs(0, blanket(-10)))
+    sm.step(relay_obs(10, blanket(-10)))
+    assert sm.step(relay_obs(11, blanket(-10), plug_on=False, indicator=False)).state is State.OFF_CONFIRMED
+    d = sm.step(relay_obs(20, blanket(-10), plug_on=True, indicator=True))
+    assert Action.POWER_RESTORED in d.actions and d.state is State.WARN

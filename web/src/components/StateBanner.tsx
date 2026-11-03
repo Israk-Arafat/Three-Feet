@@ -59,7 +59,8 @@ export function StateBanner({
   } else if (tone === "verify") {
     detail = `${capitalize(live.reason)}.`;
   } else if (tone === "off") {
-    detail = live.signals.indicator_off ? "Power is under 5 W and the light is dark." : "Power is under 5 W.";
+    const first = live.power.metering ? "Power is under 5 W" : "The plug reports off";
+    detail = live.signals.indicator_off ? `${first} and the light is dark.` : `${first}.`;
   } else {
     detail = "Power did not drop after retrying. Go to the heater now.";
   }

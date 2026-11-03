@@ -125,3 +125,42 @@ def test_calibration_drift_detected(rig):
     world.bumped = True
     d = tick(5)
     assert "CALIBRATION_DRIFT" in d.degraded
+
+
+def test_relay_only_plug_end_to_end():
+    """A plug without a meter (Cync): shutoff confirmed by the relay report plus the camera's power light."""
+    from three_feet.safety.actuator import PlugStatus
+
+    class RelayOnlyPlug(DryRunPlug):
+        def status(self):
+            st = super().status()
+            return PlugStatus(st.reachable, st.on, None, metering=False)
+
+    clock = FakeClock()
+    plug = RelayOnlyPlug(settle_s=0)
+    world = SimWorld(plug, clock=clock, speed_in_s=1000)
+    calib = world.calibration()
+    engine = Engine(SimSource(world), SimPerception(world), plug, Settings(_env_file=None), calib=calib,
+                    rule=ClearanceRule(36, 36, 36, 36, "default"), probe=world.indicator_probe(calib),
+                    mode="sim", clock=clock, events_dir=None)
+    engine._workers.shutdown()
+    engine._workers = SyncExecutor()
+    engine.plug.stop()
+
+    def tick(seconds=0.1):
+        clock.t += seconds
+        engine.plug.refresh()
+        return engine.tick()
+
+    try:
+        world.place("blanket", "near")
+        assert tick().state.value == "WARN"
+        assert engine.state_message["power"]["metering"] is False
+        assert engine.state_message["power"]["watts"] is None
+        assert "PLUG_UNREACHABLE" not in engine.state_message["degraded"]
+        assert tick(10).state.value == "VERIFYING"
+        d = tick()
+        assert d.state.value == "OFF_CONFIRMED"
+        assert any("plug reports off" in e["text"] for e in engine.events_since(0))
+    finally:
+        engine.stop()

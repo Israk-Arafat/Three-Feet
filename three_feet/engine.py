@@ -219,6 +219,9 @@ class Engine:
         if self._thread:
             self._thread.join(timeout=2)
         self.plug.stop()
+        close = getattr(self.switch, "close", None)
+        if callable(close):
+            close()
         self.perception.shutdown()
         self.source.close()
         self._workers.shutdown(wait=False, cancel_futures=True)
@@ -341,7 +344,8 @@ class Engine:
             self._measured = []
 
         status = self.plug.status
-        power_w = status.power_w if status.reachable else None
+        power_w = status.power_w if (status.reachable and status.metering) else None
+        plug_on = status.on if status.reachable else None
         if power_w is not None and t - self._last_power_sample >= 0.25:
             self._power_history.append(round(power_w, 1))
             self._last_power_sample = t
@@ -353,7 +357,8 @@ class Engine:
                        mo.obj.label.lower() in PERSON_LABELS)
             for mo in self._measured
         )
-        obs = Observation(t, zone_objects, camera_ok, calibration_ok, self.perception.api_ok, power_w, indicator)
+        obs = Observation(t, zone_objects, camera_ok, calibration_ok, self.perception.api_ok, power_w, indicator,
+                          plug_on)
         decision = self.sm.step(obs)
         self._handle(decision)
         self._render(frame, decision, camera_ok, art)
@@ -398,7 +403,12 @@ class Engine:
                 self._workers.submit(self._turn_off)
             elif action is Action.CONFIRMED:
                 n = sum(1 for v in d.signals.values() if v)
-                self.log("confirmed", f"Heater OFF — confirmed by {n}/2 independent signals", {"signals": d.signals})
+                if self.plug.status.metering:
+                    text = f"Heater OFF — confirmed by {n}/2 independent signals"
+                else:
+                    text = ("Heater OFF — plug reports off and the camera sees the power light dark"
+                            if d.signals.get("indicator_off") else "Heater OFF — plug reports off (no power meter)")
+                self.log("confirmed", text, {"signals": d.signals})
                 self._close_incident("confirmed")
             elif action is Action.ALARM:
                 self.log("alarm", "Shutoff NOT confirmed after retries — check the heater now", {"signals": d.signals})
@@ -566,7 +576,7 @@ class Engine:
                 "right_in": rule.right_in, "source": rule.source, "quote": rule.quote, "page": rule.page,
                 "heater_model": rule.heater_model, "approved": rule.approved, "approved_at": rule.approved_at,
             },
-            "power": {"reachable": status.reachable, "on": status.on, "watts": power_w,
+            "power": {"reachable": status.reachable, "on": status.on, "watts": power_w, "metering": status.metering,
                       "history": list(self._power_history), "plug": getattr(self.switch, "name", "?")},
             "signals": d.signals,
             "indicator_configured": self.probe is not None,

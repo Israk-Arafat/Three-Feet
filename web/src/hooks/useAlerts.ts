@@ -118,7 +118,8 @@ export function useAlerts(state: StateMessage | null, stale: boolean) {
       if (cur === "OFF_CONFIRMED") {
         beeper.current.play("confirm");
         const n = [state.signals.power_off, state.signals.indicator_off].filter(Boolean).length;
-        const msg = n === 2 ? "Heater is off. Confirmed by power and light." : "Heater is off. Confirmed by power.";
+        const first = state.power.metering ? "power" : "the plug";
+        const msg = n === 2 ? `Heater is off. Confirmed by ${first} and light.` : `Heater is off. Confirmed by ${first}.`;
         say(msg);
         notify("Three Feet: heater off", msg);
       }

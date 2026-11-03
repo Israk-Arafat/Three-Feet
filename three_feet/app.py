@@ -106,7 +106,7 @@ def build_engine(source_spec: str, plug_kind: str, demo: bool) -> tuple[Engine, 
              if calib and calib.indicator_roi and calib.indicator_threshold is not None else None)
     perception = (MetaPerception(SamClient(client, meter), SparkClient(client, meter), meter)
                   if client else NullPerception())
-    engine = Engine(source, perception, make_switch(plug_kind, s.plug_host), s, calib=calib, rule=rule,
+    engine = Engine(source, perception, make_switch(plug_kind, s.plug_host, s.plug_name), s, calib=calib, rule=rule,
                     probe=probe, wonder=wonder, meter=meter, mode="replay" if path.is_dir() else "live",
                     demo=demo, source_label=source_spec)
     if calib is None:
