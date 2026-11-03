@@ -194,6 +194,14 @@ Every call has a clear purpose. All model calls use **Standard mode**, not Contr
 
 ### Calibration (2 minutes, one time)
 
+**Quick setup (no printing, chosen for the first demo):** Measure the heater base's width and depth, then click its 4 base corners (`scripts/calibrate.py --heater W D`).
+- With a typical phone field of view assumed (66°, `--fov` to change), the camera pose is solved from the heater rectangle (`cv2.solvePnP`, IPPE). This is about 5× steadier than a free 4-point homography, which turns a 3 px click slip into ±35 in at 3 ft.
+- A Monte Carlo pass jitters the clicks (3 px), the tape measurement (¼ in), and the field of view (10%). Its 95th-percentile error at 36 in becomes `distance_err_frac`, and every distance's error bar grows by that fraction of the distance.
+- With the phone about 6 ft away, this gives about ±20% of distance (±7 in at 36 in). That's fine for "the blanket is touching the heater," but it is wide at the 3 ft boundary. If it reads 30% or more, move the phone closer or use markers.
+- Limitation: there are no markers to watch, so drift isn't detected. Rerun the setup if the phone moves.
+
+**Markers (tighter error bars):**
+
 1. Print 4 **ArUco markers** (`DICT_4X4_50`, 4 in squares) with `tools/print_markers.py`. If there is no printer, place 4 pieces of bright tape and click them in the UI.
 2. Put the markers at the corners of a **48 × 48 in square** centered on the heater. Measure their exact positions with a tape measure, and enter the coordinates in the UI or in `calibration.json`.
 3. Compute `H = cv2.findHomography(image_pts, floor_pts_in)`. Show the **reprojection RMS in inches** in the UI.
@@ -207,6 +215,7 @@ Every call has a clear purpose. All model calls use **Standard mode**, not Contr
 
 ```text
 err_in = calib_rms_in + mask_edge_px * inches_per_px(at closest point) + parallax_term
+         + distance_err_frac * distance_in        # quick setup only; 0 with markers
 ```
 
 - `inches_per_px` comes from the local Jacobian of `H`.

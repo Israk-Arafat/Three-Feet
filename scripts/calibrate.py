@@ -1,14 +1,18 @@
 """Calibrate the floor plane and mark the heater, from a photo or the live camera.
 
+Quick setup (no printing): measure the heater's base width and depth in inches, then click its 4 base
+corners. The heater itself sets the scale; error bars widen with distance from it.
+    python scripts/calibrate.py --source phone --heater 14 9
+
 ArUco mode (printed markers, floor positions measured with a tape):
     python scripts/calibrate.py --image data/photos/setup.jpg --layout data/markers_layout.example.json
 
 Click mode (no printer): click each tape mark in the same order as `points` in the layout file:
     python scripts/calibrate.py --image data/photos/setup.jpg --layout data/tape_layout.json --click
 
-Then click the heater base corners: FRONT-LEFT, FRONT-RIGHT, BACK-RIGHT, BACK-LEFT
-("left/right" as seen standing in front of the heater, facing it). Optionally drag a box over
-the heater's power light (Enter to accept, Esc to skip).
+Heater corners are clicked in this order: FRONT-LEFT, FRONT-RIGHT, BACK-RIGHT, BACK-LEFT ("left/right" as
+seen standing in front of the heater, facing it), where the base meets the floor. Optionally drag a box
+over the heater's power light (Enter to accept, Esc to skip).
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
 
-from three_feet.calibration import calibrate_from_markers, calibrate_from_points  # noqa: E402
+from three_feet.calibration import calibrate_from_heater, calibrate_from_markers, calibrate_from_points  # noqa: E402
 from three_feet.config import CALIBRATION_PATH, RULES_PATH, get_settings  # noqa: E402
 from three_feet.geometry import ClearanceMap, Clearances, HeaterFootprint  # noqa: E402
 from three_feet.overlay import draw_zone, put_label  # noqa: E402
@@ -74,28 +78,42 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--image")
     ap.add_argument("--source", default="phone")
-    ap.add_argument("--layout", required=True, help="JSON with marker or tape-point floor positions (inches)")
+    ap.add_argument("--layout", help="JSON with marker or tape-point floor positions (inches)")
     ap.add_argument("--click", action="store_true", help="click tape marks instead of detecting ArUco")
+    ap.add_argument("--heater", nargs=2, type=float, metavar=("WIDTH_IN", "DEPTH_IN"),
+                    help="quick setup: the heater base's width and depth in inches; no markers needed")
+    ap.add_argument("--fov", type=float, default=66.0,
+                    help="quick setup: the phone camera's horizontal field of view in degrees (default 66)")
     ap.add_argument("--out", default=str(CALIBRATION_PATH))
     args = ap.parse_args()
+    if not args.heater and not args.layout:
+        ap.error("give --heater WIDTH DEPTH for the quick setup, or --layout for markers / tape marks")
 
     image = grab_image(args)
     h, w = image.shape[:2]
-    layout = json.loads(Path(args.layout).read_text(encoding="utf-8"))
+    corner_prompts = ["heater FRONT-LEFT", "FRONT-RIGHT", "BACK-RIGHT", "BACK-LEFT"]
 
-    if args.click:
-        points = layout["points"]
-        clicked = click_points(image, len(points), "tape marks", [p["name"] for p in points])
-        cal = calibrate_from_points((w, h), clicked, [p["floor_in"] for p in points])
+    if args.heater:
+        corners_px = click_points(image, 4, "heater base corners", corner_prompts)
+        cal = calibrate_from_heater((w, h), corners_px, *args.heater, hfov_deg=args.fov)
+        pct = cal.distance_err_frac * 100
+        print(f"Quick setup from a {args.heater[0]:g} x {args.heater[1]:g} in heater: error grows about "
+              f"{pct:.0f}% of distance (about +/-{cal.distance_err_frac * 36:.1f} in at 36 in).")
+        if pct >= 30:
+            print("That's wide. Move the phone closer (heater 200+ px wide) or use printed markers.")
     else:
-        markers = {int(k): tuple(v) for k, v in layout["markers"].items()}
-        cal = calibrate_from_markers(image, markers)
-    print(f"Floor homography fitted; reprojection RMS = {cal.floor.rms_in:.2f} in")
-
-    corners_px = click_points(image, 4, "heater base",
-                              ["heater FRONT-LEFT", "FRONT-RIGHT", "BACK-RIGHT", "BACK-LEFT"])
-    corners_in = cal.floor.image_to_floor(corners_px)
-    cal.heater = HeaterFootprint.from_corners(*corners_in)
+        layout = json.loads(Path(args.layout).read_text(encoding="utf-8"))
+        if args.click:
+            points = layout["points"]
+            clicked = click_points(image, len(points), "tape marks", [p["name"] for p in points])
+            cal = calibrate_from_points((w, h), clicked, [p["floor_in"] for p in points])
+        else:
+            markers = {int(k): tuple(v) for k, v in layout["markers"].items()}
+            cal = calibrate_from_markers(image, markers)
+        print(f"Floor homography fitted; reprojection RMS = {cal.floor.rms_in:.2f} in")
+        corners_px = click_points(image, 4, "heater base", corner_prompts)
+        corners_in = cal.floor.image_to_floor(corners_px)
+        cal.heater = HeaterFootprint.from_corners(*corners_in)
     print(f"Heater footprint: {cal.heater.width_in:.1f} in wide x {cal.heater.depth_in:.1f} in deep")
 
     roi = cv2.selectROI("Drag a box over the heater power light (Esc to skip)", image, showCrosshair=False)
@@ -109,11 +127,12 @@ def main() -> int:
     s = get_settings()
     clear = Clearances.from_rule(ClearanceRule.load()) if RULES_PATH.exists() else Clearances(
         *([s.default_clearance_in] * 4))
-    cmap = ClearanceMap(cal.floor, cal.heater, clear, s.mask_edge_px, s.parallax_in)
+    cmap = ClearanceMap(cal.floor, cal.heater, clear, s.mask_edge_px, s.parallax_in, cal.distance_err_frac)
     preview = image.copy()
     draw_zone(preview, cmap, s.watch_margin_in)
-    put_label(preview, f"RMS {cal.floor.rms_in:.2f} in  |  red = clearance zone, amber = +{s.watch_margin_in:.0f} in",
-              (10, 30))
+    accuracy = (f"quick setup, +/-{cal.distance_err_frac * 100:.0f}% of distance" if cal.method == "heater"
+                else f"RMS {cal.floor.rms_in:.2f} in")
+    put_label(preview, f"{accuracy}  |  red = clearance zone, amber = +{s.watch_margin_in:.0f} in", (10, 30))
     cv2.imshow("zone preview (any key to close)", preview)
     cv2.waitKey(0)
     cv2.destroyAllWindows()

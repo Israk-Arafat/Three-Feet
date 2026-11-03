@@ -49,7 +49,7 @@ def main() -> int:
         if cal.heater:
             clear = Clearances.from_rule(ClearanceRule.load()) if RULES_PATH.exists() else Clearances(
                 *([s.default_clearance_in] * 4))
-            cmap = ClearanceMap(cal.floor, cal.heater, clear, s.mask_edge_px, s.parallax_in)
+            cmap = ClearanceMap(cal.floor, cal.heater, clear, s.mask_edge_px, s.parallax_in, cal.distance_err_frac)
             print(f"Using calibration (RMS {cal.floor.rms_in:.2f} in)")
 
     out = RUNS_DIR / f"sam_{datetime.now():%Y%m%d_%H%M%S}"

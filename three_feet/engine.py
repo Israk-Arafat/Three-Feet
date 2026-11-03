@@ -245,7 +245,7 @@ class Engine:
                 self.cmap = None
             return
         cmap = ClearanceMap(self.calib.floor, self.calib.heater, Clearances.from_rule(self.rule),
-                            s.mask_edge_px, s.parallax_in)
+                            s.mask_edge_px, s.parallax_in, self.calib.distance_err_frac)
         heater_px = np.zeros(cmap.slack.shape, np.uint8)
         cv2.fillPoly(heater_px, [cmap.heater_polygon_px()], 1)
         heater_px = cv2.dilate(heater_px, np.ones((25, 25), np.uint8)).astype(bool)
@@ -582,6 +582,8 @@ class Engine:
             "indicator_configured": self.probe is not None,
             "camera": {"fps": round(fps, 1), "healthy": camera_ok, **self.camera_info},
             "calibration": {"configured": self.cmap is not None,
+                            "method": self.calib.method if self.calib else None,
+                            "distance_err_pct": round(self.calib.distance_err_frac * 100) if self.calib else None,
                             "rms_in": round(self.calib.floor.rms_in, 2) if self.calib else None,
                             "drift_px": None if not np.isfinite(self.drift) else round(self.drift, 1),
                             "reference_set": bool(self.catchall and self.catchall.reference is not None)},

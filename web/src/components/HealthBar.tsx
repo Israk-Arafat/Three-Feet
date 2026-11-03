@@ -37,6 +37,8 @@ export function HealthBar({ state, connected }: { state: StateMessage | null; co
     : "lost";
   const calValue = !cal.configured
     ? "not calibrated"
+    : cal.method === "heater"
+    ? `quick setup, ±${cal.distance_err_pct ?? "?"}% of distance`
     : `error ${cal.rms_in?.toFixed(2) ?? "?"} in, ${cal.drift_px !== null ? `drift ${cal.drift_px.toFixed(1)} px` : "markers hidden"}`;
   const apiValue = state.mode === "sim" ? "simulated" : a.ok ? `SAM ${a.sam_latency_s?.toFixed(2) ?? "?"} s` : "unavailable";
 

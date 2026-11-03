@@ -63,7 +63,14 @@ export interface StateMessage {
   signals: { power_off: boolean | null; indicator_off: boolean | null };
   indicator_configured: boolean;
   camera: { fps: number; healthy: boolean; battery_pct: number | null; wifi_dbm: number | null };
-  calibration: { configured: boolean; rms_in: number | null; drift_px: number | null; reference_set: boolean };
+  calibration: {
+    configured: boolean;
+    method: "markers" | "points" | "heater" | null;
+    distance_err_pct: number | null;
+    rms_in: number | null;
+    drift_px: number | null;
+    reference_set: boolean;
+  };
   api: {
     ok: boolean;
     sam_latency_s: number | null;

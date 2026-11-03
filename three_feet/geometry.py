@@ -168,9 +168,11 @@ class ClearanceMap:
     """Per-pixel slack (inches) precomputed once per calibration so measuring a mask is a lookup."""
 
     def __init__(self, calib: FloorCalibration, heater: HeaterFootprint, clear: Clearances,
-                 mask_edge_px: float = 2.0, parallax_in: float = 0.5) -> None:
+                 mask_edge_px: float = 2.0, parallax_in: float = 0.5, distance_err_frac: float = 0.0) -> None:
+        """`distance_err_frac` adds error that grows with distance from the heater (heater-only calibration)."""
         self.calib, self.heater, self.clear = calib, heater, clear
         self.mask_edge_px, self.parallax_in = mask_edge_px, parallax_in
+        self.distance_err_frac = distance_err_frac
         w, h = calib.image_size
         xs, ys = np.meshgrid(np.arange(w, dtype=np.float64), np.arange(h, dtype=np.float64))
         pix = np.stack([xs.ravel(), ys.ravel(), np.ones(w * h)])
@@ -206,7 +208,8 @@ class ClearanceMap:
         vals = self.slack[ys, xs]
         i = int(np.argmin(vals))
         x, y = int(xs[i]), int(ys[i])
-        err = self.calib.rms_in + self.mask_edge_px * self.calib.inches_per_px(x, y) + self.parallax_in
+        err = (self.calib.rms_in + self.mask_edge_px * self.calib.inches_per_px(x, y) + self.parallax_in
+               + self.distance_err_frac * float(self.distance[y, x]))
         floor_pt = self.calib.image_to_floor([[x, y]])
         u, v = self.heater.to_local(floor_pt)
         hw, hd = self.heater.width_in / 2, self.heater.depth_in / 2
