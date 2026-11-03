@@ -29,7 +29,7 @@ Copy-Item .env.example .env      # then add MODEL_API_KEY and the phone camera U
 | --- | --- |
 | Check the API key and models | `.\.venv\Scripts\python.exe scripts\smoke_api.py` |
 | View the phone camera (press S to save snapshots to `data/photos/`) | `.\.venv\Scripts\python.exe scripts\view_stream.py --source phone` |
-| Print ArUco markers | `.\.venv\Scripts\python.exe tools\print_markers.py` |
+| Print ArUco markers (writes `data\markers\aruco_markers.pdf`; print at Actual size) | `.\.venv\Scripts\python.exe tools\print_markers.py` |
 | Calibrate the floor and mark the heater | `.\.venv\Scripts\python.exe scripts\calibrate.py --image data\photos\setup.jpg --layout data\markers_layout.example.json` |
 | Teach it the heater's power light (on, then off) | `.\.venv\Scripts\python.exe scripts\calibrate_light.py --source phone` |
 | Extract the clearance rule from a manual | `.\.venv\Scripts\python.exe scripts\extract_rules.py data\manuals\heater.pdf` |
