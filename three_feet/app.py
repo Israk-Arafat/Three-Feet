@@ -174,8 +174,13 @@ def create_app() -> FastAPI:
 
     @app.post("/api/reset")
     def reset() -> dict:
-        if not eng().reset():
-            raise HTTPException(409, "Reset refused: only after a shutoff, with the camera working and the zone clear")
+        try:
+            ok = eng().reset()
+        except RuntimeError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        if not ok:
+            raise HTTPException(409, "Reset refused: need a shutoff state, fresh camera, valid calibration, "
+                                "available API, reachable plug, and clear zone before turning on")
         return {"ok": True}
 
     @app.get("/api/snapshot.jpg")

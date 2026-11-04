@@ -160,6 +160,20 @@ def test_turn_on_for_test_uses_plug_api_then_requests_state():
     p._loop.call_soon_threadsafe(p._loop.stop)
 
 
+def test_turn_on_uses_plug_api_then_requests_state():
+    dev = FakePlug("Heater", is_on=False)
+    p = bare_plug(dev)
+    try:
+        p.turn_on()
+        assert dev.on_calls == 1
+        p._on_update({"x": dev})
+        assert p.status().on is True
+        time.sleep(0.05)
+        assert p._cync.state_requests >= 1
+    finally:
+        p._loop.call_soon_threadsafe(p._loop.stop)
+
+
 def test_turn_off_falls_back_for_unknown_device_type():
     dev = UnknownDevice()
     p = bare_plug(dev)
@@ -176,6 +190,17 @@ def test_turn_on_for_test_falls_back_for_unknown_device_type():
     assert p._cync._command_client.calls == [(dev, True)]
     assert p.status().on is None
     p._loop.call_soon_threadsafe(p._loop.stop)
+
+
+def test_turn_on_falls_back_for_unknown_device_type():
+    dev = UnknownDevice()
+    p = bare_plug(dev)
+    try:
+        p.turn_on()
+        assert p._cync._command_client.calls == [(dev, True)]
+        assert p.status().on is None  # sending ON does not fabricate a confirmed relay state
+    finally:
+        p._loop.call_soon_threadsafe(p._loop.stop)
 
 
 def test_disconnected_account_is_unreachable():

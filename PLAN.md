@@ -260,7 +260,7 @@ err_in = calib_rms_in + mask_edge_px * inches_per_px(at closest point) + paralla
   - medium: 20 s.
   - low: 60 s, with a warning.
   - A **person or pet** should only warn and should never cut power. Use a SAM `person` concept; it is a stretch goal.
-- **Latched off:** Three Feet **never turns the heater on**. A human must press *Reset* after the zone is clear.
+- **Latched off:** Power stays off until a human presses **Reset and turn on**. This explicitly restores plug power and resumes monitoring only after a fresh, calibrated view establishes a clear zone and the API and plug are available. Removing an object never automatically restores power.
 - **Degraded policy:**
   - If the camera has been lost or frozen for more than 30 s while the heater draws power, show `UNKNOWN — not safe`.
   - The **fail-safe option** cuts power. Default it **on** for the demo so it is visible.

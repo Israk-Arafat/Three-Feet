@@ -89,9 +89,14 @@ class CyncPlug:
         asyncio.run_coroutine_threadsafe(asyncio.wait_for(self._off(), self.timeout_s), self._loop).result(
             timeout=self.timeout_s + 1)
 
-    def turn_on_for_test(self) -> None:
-        asyncio.run_coroutine_threadsafe(asyncio.wait_for(self._on_for_test(), self.timeout_s), self._loop).result(
+    def turn_on(self) -> None:
+        """Restore plug power after the engine accepts an explicit user reset."""
+        asyncio.run_coroutine_threadsafe(asyncio.wait_for(self._on(), self.timeout_s), self._loop).result(
             timeout=self.timeout_s + 1)
+
+    def turn_on_for_test(self) -> None:
+        """Compatibility alias for the manual lamp-test utility."""
+        self.turn_on()
 
     def status(self) -> PlugStatus:
         if self._device is None:
@@ -169,7 +174,7 @@ class CyncPlug:
             await self._cync._command_client.set_power_state(device, False)
         self._request_states()
 
-    async def _on_for_test(self) -> None:
+    async def _on(self) -> None:
         device = self._device
         if device is None:
             raise ConnectionError("Cync plug not connected")

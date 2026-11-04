@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import pytest
 
 from three_feet.perception.catchall import ZoneChangeDetector
 from three_feet.perception.sam import parse_sam_output
@@ -84,13 +85,18 @@ def test_dryrun_plug():
     assert plug.status().power_w == 1500
     plug.turn_off()
     assert plug.status().power_w == 0 and plug.off_commands == 1
+    plug.turn_on()
+    assert plug.status().on is True and plug.status().power_w == 1500
+    assert plug.on_commands == 1
     plug.stuck = True
     plug.simulate_power_on()
     plug.turn_off()
     assert plug.status().power_w == 1500
     plug.reachable = False
     assert plug.status().reachable is False
-    assert not hasattr(plug, "turn_on")
+    with pytest.raises(ConnectionError):
+        plug.turn_on()
+    assert plug.on_commands == 1
 
 
 def test_indicator_probe():

@@ -29,6 +29,7 @@ Copy-Item .env.example .env      # then add MODEL_API_KEY and the phone camera U
 | --- | --- |
 | Check the API key and models | `.\.venv\Scripts\python.exe scripts\smoke_api.py` |
 | View the phone camera (press S to save snapshots to `data/photos/`) | `.\.venv\Scripts\python.exe scripts\view_stream.py --source phone` |
+| Automatic quick setup: supply measured base width/depth; Muse Spark selects the floor-contact corners | `.\.venv\Scripts\python.exe scripts\calibrate_auto.py --source phone --heater 4.5 4.35` |
 | Quick setup: no printing, just measure the heater's base (width, depth in inches) and click its 4 corners | `.\.venv\Scripts\python.exe scripts\calibrate.py --source phone --heater 14 9` |
 | Or print ArUco markers for tighter error bars (writes `data\markers\aruco_markers.pdf`; print at Actual size) | `.\.venv\Scripts\python.exe tools\print_markers.py` |
 | Calibrate with the markers and mark the heater | `.\.venv\Scripts\python.exe scripts\calibrate.py --image data\photos\setup.jpg --layout data\markers_layout.example.json` |
@@ -38,6 +39,8 @@ Copy-Item .env.example .env      # then add MODEL_API_KEY and the phone camera U
 
 Phone camera: the [Android IP Camera](https://github.com/DigitallyRefined/android-ip-camera) app. Set `CAMERA_URL=https://PHONE_IP:4444/video/mjpeg` and the app's username and password in `.env`.
 
+Use your measured dimensions for `--heater`. Automatic setup inspects the full frame and, when needed, a focused crop. It saves a diagnostic image and explanation under `runs/setup/` and leaves calibration unchanged when floor-contact corners are hidden, confidence is low, or the geometry is unreliable. It does not use the tall heater body as a floor reference.
+
 ### Smart plug
 
 Three Feet controls a **GE Cync Indoor Plug** (`PLUG_KIND=cync`, `PLUG_NAME=<name in the Cync app>`). The plug has no power meter, so a shutoff is confirmed by the plug's own report that it is off plus the heater's power light going dark on camera. `PLUG_KIND=dryrun` is a simulated plug for the simulator and tests.
@@ -46,7 +49,7 @@ To set up the Cync plug:
 1. Install the extra: `.\.venv\Scripts\python.exe -m pip install -e ".[cync]"`.
 2. Close the Cync phone app (Cync allows one connection per account), then log in once: `.\.venv\Scripts\python.exe scripts\cync_login.py`. It asks for the emailed code, saves tokens (never the password) to the git-ignored `data/cync_token.json`, and lists your device names.
 3. With a lamp plugged in, check it: `.\.venv\Scripts\python.exe scripts\plug_test.py --off`.
-4. To restore the test lamp from the CLI: `.\.venv\Scripts\python.exe scripts\plug_test.py --on`. Use `--on` only with a lamp; it energizes the connected device. The live safety engine remains off-only.
+4. To restore the test lamp from the CLI: `.\.venv\Scripts\python.exe scripts\plug_test.py --on`. Use `--on` only with a lamp; it energizes the connected device. In the dashboard, **Reset and turn on** restores plug power and resumes monitoring after a shutoff, only with a fresh camera view, valid calibration, available API, reachable plug, and clear zone. Power is never restored automatically when an object leaves. A failed ON request is not retried; the engine requests OFF and runs shutdown verification and OFF retries.
 
 The Cync driver uses the unofficial [pycync](https://github.com/Kinachi249/pycync) library through Cync's cloud. Set up the calibration's power-light check: without a meter it is the only independent confirmation.
 

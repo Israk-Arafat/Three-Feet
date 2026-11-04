@@ -5,7 +5,7 @@
     python scripts/plug_test.py --on         # turn on, then report how long until the plug shows it on
 
 Use --on only with a lamp. This manual test utility can energize the connected device; the live safety
-engine remains off-only.
+engine restores power only after an explicit reset with a verified clear zone.
 """
 
 from __future__ import annotations

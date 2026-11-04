@@ -1,4 +1,4 @@
-"""Power switches. Deliberately no `turn_on`: Three Feet never turns a heater on."""
+"""Power switches. ON is used only by an explicit, guarded user reset."""
 
 from __future__ import annotations
 
@@ -20,6 +20,8 @@ class PowerSwitch(Protocol):
 
     def turn_off(self) -> None: ...
 
+    def turn_on(self) -> None: ...
+
     def status(self) -> PlugStatus: ...
 
 
@@ -36,6 +38,13 @@ class DryRunPlug:
         self.reachable = True
         self.stuck = False  # simulate a welded relay
         self.off_commands = 0
+        self.on_commands = 0
+
+    def turn_on(self) -> None:
+        if not self.reachable:
+            raise ConnectionError("dry-run plug unreachable")
+        self.on_commands += 1
+        self._on, self._off_at = True, None
 
     def simulate_power_on(self) -> None:
         """Test/demo helper standing in for a human switching the heater back on."""

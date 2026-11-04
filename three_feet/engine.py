@@ -43,6 +43,18 @@ from .safety.verifier import IndicatorProbe
 from .sources import FrameSource, MjpegHttpSource
 
 PERSON_LABELS = {"person", "people", "man", "woman", "child", "human"}
+HEATER_CORD_LABELS = {"power cord", "heater cord", "heater power cord", "electrical cord", "power cable", "heater cable"}
+
+
+def is_heater_cord(obj: PerceivedObject, heater_polygon: np.ndarray) -> bool:
+    """Exclude a cord only when its detected mask reaches the heater's footprint."""
+    label = " ".join(obj.label.lower().replace("-", " ").split())
+    if obj.source != "sam" or label not in HEATER_CORD_LABELS or not obj.mask.any():
+        return False
+    region = np.zeros(obj.mask.shape, np.uint8)
+    cv2.fillPoly(region, [heater_polygon.astype(np.int32)], 1)
+    region = cv2.dilate(region, np.ones((81, 81), np.uint8))
+    return bool(np.any(obj.mask & region.astype(bool)))
 
 
 class Perception(Protocol):
@@ -362,8 +374,11 @@ class Engine:
                 ]
             measured = []
             for o in [*perceived, *self._catchall_objs]:
+                if is_heater_cord(o, art[2]):
+                    continue
                 m = cmap.measure(o.mask)
                 if m is not None:
+                    m = replace(m, err_in=0.0)
                     measured.append(MeasuredObject(o, m, m.status(self.settings.watch_margin_in)))
             self._measured = measured
         elif not camera_ok or not calibration_ok:
@@ -385,8 +400,15 @@ class Engine:
         )
         obs = Observation(t, zone_objects, camera_ok, calibration_ok, self.perception.api_ok, power_w, indicator,
                           plug_on)
-        decision = self.sm.step(obs)
-        self._handle(decision)
+        with self._state_lock:
+            self._last_observation = obs
+            if self._reset_pending and not self._reset_cancelled and not self._reset_view_ok():
+                self._reset_cancelled = True
+                self.sm.request_shutoff(t, "Power restoration cancelled: the clearance zone or monitoring changed")
+                self.log("reset_cancelled", "Monitoring changed during power restoration; requesting OFF immediately")
+                self._workers.submit(self._turn_off)
+            decision = self.sm.step(obs, allow_power_restored=not self._reset_pending)
+            self._handle(decision)
         self._render(frame, decision, camera_ok, art)
         self.state_message = self._message(decision, camera_ok, power_w, status)
         return decision
@@ -501,17 +523,63 @@ class Engine:
                    else "Shutoff could NOT be confirmed; a person was alerted to check the heater.")
         return f"At {when}, {what}. Power was cut ({inc.reason}). {outcome}"
 
+    def _reset_view_ok(self) -> bool:
+        """A missing or stale observation never establishes a clear zone."""
+        obs = self._last_observation
+        return bool(
+            obs is not None
+            and 0 <= self.clock() - obs.t <= 1.0
+            and obs.camera_ok and self.source.healthy and not self.fault_camera
+            and obs.calibration_ok and self.calib is not None and self.cmap is not None
+            and obs.api_ok and self.perception.api_ok
+            and self.plug.status.reachable
+            and all(mo.status != "violation" for mo in self._measured)
+        )
+
+    def _can_reset(self, *, allow_pending: bool = False) -> bool:
+        return bool(
+            (allow_pending or not self._reset_pending)
+            and not (self._reset_pending and self._reset_cancelled)
+            and self.sm.state in (State.OFF_CONFIRMED, State.OFF_UNCONFIRMED)
+            and self._reset_view_ok()
+        )
+
     def reset(self) -> bool:
-        zone_clear = all(mo.status != "violation" for mo in self._measured) and self.state_message.get(
-            "camera", {}).get("healthy", False)
-        ok = self.sm.reset(zone_clear)
-        if ok:
-            self._prev_state = self.sm.state
-            self.log("reset", "Reset by user — monitoring resumed. Three Feet never turns the heater on; "
-                              "switch it on yourself when the zone is clear.")
-            if self.on_reset:
-                self.on_reset()
-        return ok
+        """Restore power once on user request, then resume monitoring after a fresh clear-zone check."""
+        if not self._reset_lock.acquire(blocking=False):
+            return False
+        try:
+            with self._state_lock:
+                if not self._can_reset():
+                    return False
+                self._reset_cancelled = False
+                self._reset_pending = True
+            try:
+                # Network IO stays off the safety-loop thread; never retry an ON command.
+                self.switch.turn_on()
+                self.plug.refresh()
+                with self._state_lock:
+                    if not self._can_reset(allow_pending=True):
+                        raise RuntimeError("The camera, calibration, plug, API, or clearance zone changed while restoring power")
+                    self.sm.reset(True)
+                    self._reset_pending = False
+                    self._prev_state = self.sm.state
+                    self.log("reset", "Reset by user — plug ON command sent; monitoring resumed")
+                if self.on_reset:
+                    self.on_reset()
+                return True
+            except Exception as exc:
+                # An ON timeout can mean power was restored: request OFF rather than retry ON.
+                with self._state_lock:
+                    self._reset_cancelled = True
+                    self.sm.request_shutoff(self.clock(), "Power restoration failed; verifying shutdown")
+                self._turn_off()
+                self.log("error", f"Reset failed while restoring power: {type(exc).__name__}: {exc}")
+                raise RuntimeError(f"Could not restore heater power: {exc}") from exc
+            finally:
+                self._reset_pending = False
+        finally:
+            self._reset_lock.release()
 
     # -- phone camera ------------------------------------------------------------------------------
     def _phone_base(self) -> str | None:
@@ -589,7 +657,9 @@ class Engine:
             "reason": d.reason,
             "countdown_s": None if d.countdown_s is None else round(d.countdown_s, 1),
             "degraded": list(d.degraded),
-            "can_reset": d.state in (State.OFF_CONFIRMED, State.OFF_UNCONFIRMED) and zone_clear and camera_ok,
+            "can_reset": self._can_reset(),
+            "reset_pending": self._reset_pending,
+            "reset_cancelled": self._reset_pending and self._reset_cancelled,
             "objects": [{
                 "track_id": mo.obj.track_id, "label": mo.obj.label, "source": mo.obj.source,
                 "distance_in": round(mo.m.distance_in, 1), "err_in": round(mo.m.err_in, 1),

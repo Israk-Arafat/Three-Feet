@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 import three_feet.app as app_module
 import three_feet.perception.wonder as wonder_module
+from three_feet.safety.state_machine import State
 
 
 @pytest.fixture
@@ -40,7 +41,8 @@ def wait_for(client, predicate, timeout=5.0):
 
 def test_state_shape_and_config(client):
     s = client.get("/api/state").json()
-    for key in ("state", "banner", "objects", "rule", "power", "signals", "camera", "calibration", "api"):
+    for key in ("state", "banner", "objects", "rule", "power", "signals", "camera", "calibration", "api",
+                "reset_pending", "reset_cancelled"):
         assert key in s
     cfg = client.get("/api/config").json()
     assert cfg == {"mode": "sim", "demo": True, "source": "simulated scene", "plug": "dryrun",
@@ -67,6 +69,53 @@ def test_rejects_non_pdf(client):
 
 def test_reset_refused_when_not_shut_off(client):
     assert client.post("/api/reset").status_code == 409
+
+
+def latch_simulated_plug_off(client):
+    engine = client.app.state.engine
+    engine.switch.settle_s = 0
+    engine.switch.turn_off()
+    engine.plug.refresh()
+    engine.sm.state = State.OFF_CONFIRMED
+    wait_for(client, lambda s: s["state"] == "OFF_CONFIRMED" and s["can_reset"])
+    return engine
+
+
+def test_reset_restores_power_and_monitoring_once(client):
+    engine = latch_simulated_plug_off(client)
+    response = client.post("/api/reset")
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    state = wait_for(client, lambda s: s["state"] == "CLEAR" and s["power"]["on"] is True)
+    assert state["can_reset"] is False
+    assert engine.switch.on_commands == 1
+    assert client.post("/api/reset").status_code == 409
+    assert engine.switch.on_commands == 1
+
+
+def test_reset_on_failure_returns_error_and_keeps_heater_latched_off(client, monkeypatch):
+    engine = latch_simulated_plug_off(client)
+
+    def fail_on():
+        raise RuntimeError("plug command failed")
+
+    monkeypatch.setattr(engine.switch, "turn_on", fail_on)
+    response = client.post("/api/reset")
+    assert response.status_code == 502
+    assert "detail" in response.json()
+    assert engine.sm.state in (State.VERIFYING, State.OFF_CONFIRMED)
+    assert engine.switch.status().on is False
+    wait_for(client, lambda s: s["state"] == "OFF_CONFIRMED")
+
+
+def test_reset_refuses_missing_calibration_after_shutoff(client):
+    engine = latch_simulated_plug_off(client)
+    engine.calib = None
+    engine._build_geometry()
+    wait_for(client, lambda s: not s["calibration"]["configured"] and not s["can_reset"])
+    assert client.post("/api/reset").status_code == 409
+    assert engine.switch.on_commands == 0
+    assert engine.switch.status().on is False
 
 
 def test_demo_controls_drive_states(client):

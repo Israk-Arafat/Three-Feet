@@ -288,9 +288,7 @@ class Autoplay:
 
     def _human_reset(self) -> None:
         self._wait_for(lambda: self.reset(), 10)
-        self._wait(1.5)
-        self.world.plug.simulate_power_on()
-        self.log("SIMULATED: a person switched the heater back on")
+        self.log("SIMULATED: a person reset the system and restored heater power")
 
     def _run(self) -> None:
         off = lambda: self.get_state().startswith("OFF_")  # noqa: E731

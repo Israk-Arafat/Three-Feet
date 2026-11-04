@@ -4,7 +4,7 @@ Principles:
 - Models can only make the system more cautious (unknown/uncertain hazard -> "high").
 - Missing information is never treated as safe.
 - Shutoff is confirmed only by independent signals; power stays off until a human resets.
-- Three Feet never turns a heater on.
+- Restoring power requires an explicit, guarded user reset in the engine.
 """
 
 from __future__ import annotations
@@ -114,7 +114,7 @@ class SafetyStateMachine:
         self._reason = "Zone clear"
 
     # -- public API ---------------------------------------------------------------
-    def step(self, obs: Observation) -> Decision:
+    def step(self, obs: Observation, *, allow_power_restored: bool = True) -> Decision:
         actions: list[Action] = []
         degraded = self._degraded(obs)
         if set(degraded) - self._prev_degraded:
@@ -137,7 +137,7 @@ class SafetyStateMachine:
             if self._confirmed(signals):
                 self._enter(State.OFF_CONFIRMED, "Shutoff confirmed (late)")
                 actions.append(Action.CONFIRMED)
-        elif self.state is State.OFF_CONFIRMED and signals["power_off"] is not False:
+        elif self.state is State.OFF_CONFIRMED and (signals["power_off"] is not False or not allow_power_restored):
             pass  # latched until a human resets
         else:
             if self.state is State.OFF_CONFIRMED:
@@ -161,6 +161,12 @@ class SafetyStateMachine:
         return True
 
     # -- internals ----------------------------------------------------------------
+    def request_shutoff(self, t: float, reason: str) -> None:
+        """Enter normal shutdown verification after a cancelled or ambiguous power restore."""
+        self._enter(State.VERIFYING, reason)
+        self._verify_started = t
+        self._retries = 0
+
     def _step_monitoring(self, obs: Observation, blind: bool, actions: list[Action]):
         cfg = self.cfg
         heater_maybe_on = self._signals(obs)["power_off"] is not True
@@ -237,9 +243,7 @@ class SafetyStateMachine:
         return None
 
     def _start_shutoff(self, t: float, reason: str, actions: list[Action]) -> None:
-        self._enter(State.VERIFYING, reason)
-        self._verify_started = t
-        self._retries = 0
+        self.request_shutoff(t, reason)
         actions.append(Action.TURN_OFF)
 
     def _signals(self, obs: Observation) -> dict:
