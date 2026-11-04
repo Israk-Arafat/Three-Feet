@@ -27,18 +27,15 @@ function Sides({ r }: { r: Pick<Rule, "front_in" | "back_in" | "left_in" | "righ
 
 function RuleDialog({ onClose }: { onClose: () => void }) {
   const input = useRef<HTMLInputElement>(null);
-  const dialog = useRef<HTMLDivElement>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<RuleDraft | null>(null);
   const [fileName, setFileName] = useState("");
 
   useEffect(() => {
-    dialog.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    if (!dialog.current?.open) dialog.current?.showModal();
+  }, []);
 
   const extract = async (file: File) => {
     setBusy(true);
@@ -68,16 +65,14 @@ function RuleDialog({ onClose }: { onClose: () => void }) {
 
   const ex = draft?.extraction;
   return (
-    <div className="fixed inset-0 z-(--z-modal) flex items-center justify-center bg-ink/60 p-6" onClick={onClose}>
-      <div
-        ref={dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="rule-dialog-title"
-        tabIndex={-1}
-        className="w-full max-w-2xl space-y-4 border-2 border-ink bg-paper-3 p-6 shadow-card outline-none"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <dialog
+      ref={dialog}
+      className="rule-dialog"
+      aria-labelledby="rule-dialog-title"
+      onClose={onClose}
+      onPointerDown={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="space-y-4 p-6">
         <div className="flex items-baseline justify-between gap-4">
           <h2 id="rule-dialog-title" className="text-xl">Read the rule from the heater manual</h2>
           <span className="panel__note">Muse Wonder</span>
@@ -142,7 +137,7 @@ function RuleDialog({ onClose }: { onClose: () => void }) {
           </div>
         )}
       </div>
-    </div>
+    </dialog>
   );
 }
 
@@ -163,7 +158,11 @@ export function RuleCard({ rule, className = "" }: { rule: Rule | undefined; cla
               </p>
             )
           ) : (
-            <p className="text-sm text-muted">36 in on every side until a manual is read.</p>
+            <p className="text-sm text-muted">
+              {[rule.back_in, rule.left_in, rule.right_in].every((v) => v === rule.front_in)
+                ? `${rule.front_in.toFixed(0)} in on every side until a manual is read.`
+                : "Default clearances until a manual is read."}
+            </p>
           )}
           <div className="flex items-center justify-between gap-3">
             <span className={`text-sm font-medium ${rule.approved ? "text-ink" : "text-muted"}`}>
