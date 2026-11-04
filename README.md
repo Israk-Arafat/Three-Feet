@@ -55,7 +55,7 @@ The Cync driver uses the unofficial [pycync](https://github.com/Kinachi249/pycyn
 
 ### Dashboard
 
-Build the web UI once (Node 20+), then run the server. Open `http://127.0.0.1:8000`. Add `?demo=1` to show the fault-injection panel.
+Build the web UI once (Node 20+), then run the server. Open `http://127.0.0.1:8000`. Add `?demo=1` to show a **Fault tests** button in the header that opens the fault-injection panel.
 
 ```powershell
 cd web; npm install; npm run build; cd ..

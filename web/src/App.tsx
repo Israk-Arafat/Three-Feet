@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { DemoControls } from "./components/DemoControls";
 import { HealthBar } from "./components/HealthBar";
 import { HeaterSetup } from "./components/HeaterSetup";
@@ -23,6 +23,11 @@ export default function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [setupRevision, setSetupRevision] = useState(0);
+  const [demoOpen, setDemoOpen] = useState(false);
+  const [aspect, setAspect] = useState(16 / 9);
+  const openSetup = useCallback(() => setSetupOpen(true), []);
+  const closeSetup = useCallback(() => setSetupOpen(false), []);
+  const handleSaved = useCallback(() => setSetupRevision((v) => v + 1), []);
 
   useEffect(() => {
     if (connected) api.config().then(setConfig).catch(() => undefined);
@@ -44,7 +49,12 @@ export default function App() {
         <div className="ml-auto flex items-center gap-3">
           {simulated && <span className="tag tag--amber">Simulated scene</span>}
           {state?.mode === "replay" && <span className="tag">Replaying photos</span>}
-          <button type="button" className="btn" onClick={() => setSetupOpen(true)}>
+          {showDemo && config?.demo && (
+            <button type="button" className="btn" aria-pressed={demoOpen} onClick={() => setDemoOpen((v) => !v)}>
+              Fault tests
+            </button>
+          )}
+          <button type="button" className="btn" onClick={openSetup}>
             <Icon name="settings" size={18} />
             Heater setup
           </button>
@@ -60,16 +70,18 @@ export default function App() {
         </div>
       </header>
 
-      <StateBanner state={state} stale={stale} connected={connected} onSetup={() => setSetupOpen(true)} />
+      <StateBanner state={state} stale={stale} connected={connected} onSetup={openSetup} />
 
-      <main className="layout">
+      <main className="layout" data-orientation={aspect < 1 ? "portrait" : "landscape"}>
         <LiveView
-          className="area-video w-full self-start"
+          className="area-video w-full self-start fit:self-stretch"
           cameraHealthy={!stale && (state?.camera.healthy ?? false)}
           simulated={simulated}
           calibrated={live?.calibration.configured ?? false}
           setupRevision={setupRevision}
-          onSetup={() => setSetupOpen(true)}
+          aspect={aspect}
+          onSetup={openSetup}
+          onAspect={setAspect}
         />
         <ObjectsCard state={live} className="area-objects" />
         <PowerCard state={live} className="area-power" />
@@ -78,9 +90,9 @@ export default function App() {
         <RuleCard rule={state?.rule} className="area-rule" />
       </main>
 
-      <HealthBar state={state} connected={connected && !stale} onSetup={() => setSetupOpen(true)} />
-      {showDemo && config?.demo && <DemoControls config={config} />}
-      <HeaterSetup open={setupOpen} onClose={() => setSetupOpen(false)} onSaved={() => setSetupRevision((v) => v + 1)} />
+      <HealthBar state={state} connected={connected && !stale} onSetup={openSetup} />
+      {showDemo && config?.demo && <DemoControls config={config} open={demoOpen} onClose={() => setDemoOpen(false)} />}
+      <HeaterSetup open={setupOpen} onClose={closeSetup} onSaved={handleSaved} />
     </div>
   );
 }

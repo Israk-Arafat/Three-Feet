@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState, type CSSProperties } from "react";
 import { api } from "../lib/api";
 import type { ViewGeometry } from "../types";
 import { Icon } from "./Icon";
 
-export function LiveView({cameraHealthy,simulated,calibrated,setupRevision,onSetup,className=""}:{cameraHealthy:boolean;simulated:boolean;calibrated:boolean;setupRevision:number;onSetup:()=>void;className?:string}) {
+function LiveViewImpl({cameraHealthy,simulated,calibrated,setupRevision,aspect,onSetup,onAspect,className=""}:{cameraHealthy:boolean;simulated:boolean;calibrated:boolean;setupRevision:number;aspect:number;onSetup:()=>void;onAspect:(aspect:number)=>void;className?:string}) {
   const [attempt,setAttempt]=useState(0),[failed,setFailed]=useState(false);
   const [layers,setLayers]=useState(()=>{try{const p=JSON.parse(localStorage.getItem("three-feet.layers")??"null");if(p&&[p.zone,p.base,p.objects].every(v=>typeof v==="boolean"))return p as {zone:boolean;base:boolean;objects:boolean};}catch{}return {zone:true,base:false,objects:true};});
   const [geometry,setGeometry]=useState<ViewGeometry|null>(null),[snapshot,setSnapshot]=useState(0);
@@ -24,13 +24,24 @@ export function LiveView({cameraHealthy,simulated,calibrated,setupRevision,onSet
         <button type="button" className="btn btn--sm" aria-pressed={layers.objects} onClick={()=>toggle("objects")}><Icon name="eye" size={16}/>Objects</button>
       </div>
     </header>
-    <figure className="screen camera-stage m-0">
-      {!failed&&<img key={query.toString()} src={`/stream.mjpg?${query}`} alt="Live heater camera with your selected overlays" width={1280} height={720} className={`h-full w-full object-contain ${cameraHealthy?"":"opacity-40"}`} onError={()=>setFailed(true)}/>}
+    <figure className="screen camera-stage m-0" style={{"--stream-aspect":aspect} as CSSProperties} aria-label="Live camera view">
+      {!failed&&<img key={query.toString()} src={`/stream.mjpg?${query}`} alt="Live heater camera with your selected overlays" width={1280} height={720} className={`h-full w-full object-contain ${cameraHealthy?"":"opacity-40"}`} onLoad={e=>{const {naturalWidth:w,naturalHeight:h}=e.currentTarget;if(w&&h)onAspect(w/h);}} onError={()=>setFailed(true)}/>}
       {failed&&<p className="p-8 text-paper-3">Video unavailable. Reconnecting…</p>}
       <span className="screen__tag absolute left-3 top-3"><span className="swatch" data-tone={cameraHealthy?"live":"info"}/>{cameraHealthy?"Live":"Camera offline"}{simulated?" / Simulated":""}</span>
       {layers.base&&viewBox&&corners&&size&&cameraHealthy&&<aside className="base-closeup" aria-label="Heater base close-up"><div>Base close-up</div><svg viewBox={viewBox} role="img" aria-label="Magnified floor footprint"><image href={`/api/snapshot.jpg?base=${snapshot}`} width={size[0]} height={size[1]}/><polygon points={corners.map(p=>p.join(",")).join(" ")} fill="none" stroke="var(--color-accent-2)" strokeWidth="2"/></svg><div>{geometry?.base_width_in} × {geometry?.base_depth_in} in</div></aside>}
-      {calibrated&&<figcaption className="camera-legend screen__tag">{layers.zone&&<span><i className="legend-line bg-state-warn"/>Danger zone</span>}{layers.base&&<span><i className="legend-line bg-paper-3"/>Base footprint</span>}{!layers.zone&&!layers.base&&!layers.objects&&"Camera only"}</figcaption>}
     </figure>
-    <div className="camera-caption"><div><strong>{calibrated?layers.base?"The heater’s floor footprint":"Choose what you see":"Map your heater’s footprint"}</strong><p>{calibrated?"View controls change the picture. Monitoring stays active.":"Enter base width and length to reveal the danger zone."}</p></div><button type="button" className={`btn btn--sm ${calibrated?"":"btn--primary"}`} onClick={onSetup}>{calibrated?"Adjust base":"Set up heater base"}</button></div>
+    <footer className="camera-footer">
+      {calibrated
+        ?<ul className="camera-legend" aria-label="Overlay key">
+          {layers.zone&&<li><i className="legend-line bg-state-warn"/>Danger zone</li>}
+          {layers.zone&&<li><i className="legend-line bg-accent-2"/>Watch margin</li>}
+          {layers.base&&<li><i className="legend-line legend-line--base"/>Heater base</li>}
+          {!layers.zone&&!layers.base&&<li>{layers.objects?"Objects only":"Camera only"}</li>}
+        </ul>
+        :<p>Enter the base width and length to reveal the danger zone.</p>}
+      <button type="button" className={`btn btn--sm ${calibrated?"":"btn--primary"}`} onClick={onSetup}>{calibrated?"Edit heater base":"Set up heater base"}</button>
+    </footer>
   </section>;
 }
+
+export const LiveView=memo(LiveViewImpl);

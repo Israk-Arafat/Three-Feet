@@ -1,3 +1,4 @@
+import { memo, useMemo } from "react";
 import { clock } from "../lib/format";
 import type { EventItem } from "../types";
 import { Swatch, type Tone } from "./ui";
@@ -20,20 +21,22 @@ const KIND: Record<string, { tone: Tone; label: string }> = {
   state: { tone: "info", label: "State" },
 };
 
+const MAX_ROWS = 80;
+
 /** The event board: newest first, one row per event, like a departure board. */
-export function Timeline({ events, className = "" }: { events: EventItem[]; className?: string }) {
-  const items = [...events].reverse().slice(0, 80);
+function TimelineImpl({ events, className = "" }: { events: EventItem[]; className?: string }) {
+  const items = useMemo(() => events.slice(-MAX_ROWS).reverse(), [events]);
   return (
     <section className={`panel ${className}`}>
       <header className="panel__head">
         <h2>Event log</h2>
-        <span className="panel__note">{events.length} events</span>
+        <span className="panel__note">{events.length > MAX_ROWS ? `Latest ${MAX_ROWS} of ${events.length}` : `${events.length} events`}</span>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {items.length === 0 ? (
           <p className="p-4 text-muted">No events yet.</p>
         ) : (
-          <table className="board board--sticky">
+          <table className="board board--sticky board--log">
             <thead>
               <tr>
                 <th className="w-28">Time</th>
@@ -64,3 +67,5 @@ export function Timeline({ events, className = "" }: { events: EventItem[]; clas
     </section>
   );
 }
+
+export const Timeline = memo(TimelineImpl);
