@@ -435,7 +435,7 @@ class Engine:
                     if status == "violation":
                         if is_person_label(o.label) or o.extra.get("on_person"):
                             status = "watch"
-                        elif o.source == "catchall" or not self.perception.api_ok:
+                        elif o.source == "catchall" or o.misses > 0 or not self.perception.api_ok:
                             status = "pending"
                     measured.append(MeasuredObject(o, m, status))
             self._measured = measured
@@ -453,7 +453,7 @@ class Engine:
             ZoneObject(mo.obj.track_id, mo.obj.label, mo.m.slack_in, mo.m.err_in,
                        mo.obj.hazard if mo.obj.hazard in ("high", "medium", "low") else "high",  # type: ignore[arg-type]
                        is_person_label(mo.obj.label) or bool(mo.obj.extra.get("on_person")),
-                       awaiting_model=mo.obj.source == "catchall")
+                       awaiting_model=mo.obj.source == "catchall" or mo.obj.misses > 0)
             for mo in self._measured
         )
         obs = Observation(t, zone_objects, camera_ok, calibration_ok, self.perception.api_ok, power_w,

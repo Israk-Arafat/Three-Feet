@@ -311,6 +311,45 @@ def test_api_outage_degrades_to_unknown_high_hazard(rig):
     assert engine.state_message["objects"][0]["hazard"] == "high"
 
 
+def test_local_motion_waits_for_sam_and_report_names_actual_trigger(rig, monkeypatch):
+    engine, world, plug, tick = rig
+    tick()
+    assert engine.set_reference()
+    original = engine.perception.current
+    requested = []
+    monkeypatch.setattr(engine.perception, "current", lambda: [])
+    monkeypatch.setattr(engine.perception, "request_check", lambda: requested.append(True), raising=False)
+    world.place("blanket", "near")
+    for seconds in (.1, 10, 60):
+        d = tick(seconds)
+        assert d.state.value == "WATCH" and d.countdown_s is None
+        assert plug.off_commands == 0
+        assert any(o["status"] == "pending" for o in engine.state_message["objects"])
+    assert requested
+    engine.log("warn", "Unknown object was seen earlier", {"track_id": "unrelated-motion"})
+    monkeypatch.setattr(engine.perception, "current", original)
+    assert tick().countdown_s == 10
+    assert tick(9).state.value == "WARN"
+    assert tick(1).state.value == "OFF_REQUESTED"
+    incident = next(iter(engine.incidents.values()))
+    assert incident.trigger["label"] == "fleece blanket"
+    assert "fleece blanket" in incident.report
+    assert not any(e.get("data", {}).get("track_id") == "unrelated-motion" for e in incident.events)
+
+
+def test_person_and_worn_clothing_never_start_object_shutoff(rig, monkeypatch):
+    engine, _, plug, tick = rig
+    mask = engine.cmap.zone_mask()
+    person = PerceivedObject("p", "person", mask, source="sam")
+    clothes = PerceivedObject("c", "clothing", mask, source="sam", extra={"on_person": True})
+    monkeypatch.setattr(engine.perception, "current", lambda: [person, clothes])
+    for seconds in (.1, 10, 60):
+        d = tick(seconds)
+        assert d.state.value == "WATCH" and d.countdown_s is None
+        assert plug.off_commands == 0
+        assert all(o["is_person"] for o in engine.state_message["objects"])
+
+
 def test_calibration_drift_detected(rig):
     engine, world, _, tick = rig
     tick()

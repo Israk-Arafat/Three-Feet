@@ -45,6 +45,7 @@ def test_state_shape_and_config(client):
                 "reset_pending", "reset_cancelled"):
         assert key in s
     cfg = client.get("/api/config").json()
+    assert s["rule"]["default_in"] == 15
     assert cfg == {"mode": "sim", "demo": True, "source": "simulated scene", "plug": "dryrun",
                    "autoplay": False, "wonder": False}
 
@@ -59,7 +60,7 @@ def test_rule_extract_and_approve(client):
     assert r.json()["rule"]["front_in"] == 36
     assert client.rules_path.exists()
     s = wait_for(client, lambda s: s["rule"]["approved"])
-    assert s["rule"]["source"] == "manual" and s["rule"]["default_in"] == 36
+    assert s["rule"]["source"] == "manual" and s["rule"]["default_in"] == 15
 
 
 def test_user_can_set_any_positive_clearance(client):
@@ -70,7 +71,7 @@ def test_user_can_set_any_positive_clearance(client):
     s = wait_for(client, lambda s: s["rule"]["source"] == "user")
     assert s["rule"]["left_in"] == 48 and s["rule"]["approved"]
     events = client.get("/api/events", params={"limit": 1000}).json()
-    assert any("below the 36 in default on the front, back" in e["text"] for e in events)
+    assert any("below the 15 in default on the back" in e["text"] for e in events)
 
 
 @pytest.mark.parametrize("bad", [{"front_in": 0}, {"front_in": -5}, {"front_in": 500}, {"source": "magic"}])

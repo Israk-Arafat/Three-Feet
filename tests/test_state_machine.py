@@ -89,11 +89,12 @@ def test_low_hazard_waits_longer_but_still_shuts_off():
     assert sm.step(obs(60, blanket(-10, "low"))).state is State.OFF_REQUESTED
 
 
-def test_api_down_forces_high_hazard():
+def test_api_not_ready_waits_for_model_before_starting_dwell():
     sm = SafetyStateMachine(CFG)
     sm.step(obs(0, blanket(-10, "low"), api=False))
     d = sm.step(obs(10, blanket(-10, "low"), api=False))
-    assert d.state is State.OFF_REQUESTED and "API_DOWN" in d.degraded
+    assert d.state is State.WATCH and "API_DOWN" in d.degraded
+    assert d.countdown_s is None and Action.TURN_OFF not in d.actions
 
 
 def test_person_in_zone_warns_but_never_cuts_power():
@@ -101,6 +102,37 @@ def test_person_in_zone_warns_but_never_cuts_power():
     for t in range(0, 120, 10):
         d = sm.step(obs(t, blanket(-20, person=True)))
         assert d.state is State.WATCH and Action.TURN_OFF not in d.actions
+
+
+def test_unclassified_movement_waits_for_sam_then_starts_full_dwell():
+    sm = SafetyStateMachine(CFG)
+    pending = ZoneObject("motion", "unclassified movement", -10, 1, awaiting_model=True)
+    for t in (0, 10, 60):
+        d = sm.step(obs(t, pending))
+        assert d.state is State.WATCH and d.countdown_s is None
+        assert Action.TURN_OFF not in d.actions
+    d = sm.step(obs(61, blanket(-10, tid="sam-blanket")))
+    assert d.state is State.WARN and d.countdown_s == 10
+    assert sm.step(obs(70, blanket(-10, tid="sam-blanket"))).state is State.WARN
+    assert sm.step(obs(71, blanket(-10, tid="sam-blanket"))).state is State.OFF_REQUESTED
+
+
+def test_different_object_does_not_inherit_previous_countdown():
+    sm = SafetyStateMachine(CFG)
+    sm.step(obs(0, blanket(-10, tid="first")))
+    d = sm.step(obs(9, blanket(-10, tid="second")))
+    assert d.countdown_s == 10
+    assert sm.step(obs(10, blanket(-10, tid="second"))).state is State.WARN
+    assert sm.step(obs(19, blanket(-10, tid="second"))).state is State.OFF_REQUESTED
+
+
+def test_pending_model_response_resets_elapsed_dwell():
+    sm = SafetyStateMachine(CFG)
+    sm.step(obs(0, blanket(-10)))
+    d = sm.step(obs(9, blanket(-10), api=False))
+    assert d.state is State.WATCH and d.countdown_s is None
+    assert sm.step(obs(10, blanket(-10))).countdown_s == 10
+    assert sm.step(obs(19, blanket(-10))).state is State.WARN
 
 
 def test_off_request_is_immediate_and_has_no_confirmation_countdown():

@@ -16,8 +16,12 @@ def test_report_uses_local_times_and_command_outcomes():
     WonderClient(client).incident_report(
         [{"t": stamp, "kind": "alarm", "text": "OFF command failed"}],
         ClearanceRule(36, 36, 36, 36, "default"),
+        trigger={"label": "patterned bedspread", "track_id": "sam-bedspread", "distance_in": 1.5},
     )
     prompt = captured["messages"][0]["content"]
     assert "2026-11-04T13:24:40-05:00" in prompt
     assert "America/New_York" in prompt
     assert "Describe only command outcomes" in prompt
+    assert '"label": "patterned bedspread"' in prompt
+    assert "Earlier unclassified movement is context, not the trigger" in prompt
+    assert "01:24:40 PM EST" in prompt

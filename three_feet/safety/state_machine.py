@@ -153,6 +153,8 @@ class SafetyStateMachine:
         """Latch the OFF request after a violation or cancelled power restoration."""
         self._enter(State.OFF_REQUESTED, reason)
         self._plug_was_off = False
+        self._violation_since.clear()
+        self._warn_track = None
 
     def _step_monitoring(self, obs: Observation, blind: bool, actions: list[Action]):
         cfg = self.cfg

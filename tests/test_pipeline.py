@@ -18,6 +18,7 @@ class FakeSam:
 
     def segment_many(self, image, concepts):
         self.calls += 1
+        self.last_concepts = list(concepts)
         if not self.present:
             return []
         mask = np.zeros((20, 20), bool)
@@ -91,6 +92,41 @@ class QuietSpark:
 
     def assess(self, *args):
         return SimpleNamespace(level="high", why="Test fabric", material_guess="fabric")
+
+
+def test_person_is_requested_even_if_inventory_returns_only_cloth():
+    sam = FakeSam()
+    sam.present = False
+    p = _perception(sam, QuietSpark())
+    try:
+        p.concepts = ["cloth"]
+        p.on_frame(_frame(1), 1, True)
+        assert _wait(lambda: not p._busy)
+        assert "person" in sam.last_concepts
+    finally:
+        p.shutdown()
+
+
+def test_person_and_overlapping_worn_clothes_survive_deduplication():
+    class PeopleSam:
+        def segment_many(self, image, concepts):
+            mask = np.zeros(image.shape[:2], bool)
+            mask[5:15, 5:15] = True
+            return [SamResult("people", [
+                Detection("person", "1", (5, 5, 15, 15), mask, .8),
+                Detection("clothing", "2", (5, 5, 15, 15), mask.copy(), .99),
+            ], .01)]
+
+    p = _perception(PeopleSam(), QuietSpark())
+    try:
+        p.on_frame(_frame(1), 1, True)
+        assert _wait(lambda: not p._busy)
+        by_label = {o.label: o for o in p.current()}
+        assert set(by_label) == {"person", "clothing"}
+        assert by_label["clothing"].extra["on_person"] is True
+        assert not by_label["person"].assessing
+    finally:
+        p.shutdown()
 
 
 def test_health_requires_a_successful_fresh_frame_and_exposes_its_identity():
@@ -246,8 +282,9 @@ def test_one_minute_of_held_motion_uses_two_sam_cycles_with_fresh_local_tracking
             assert _wait(lambda: not p._busy)
             assert p.api_ok
         assert sam.calls == 2
-        assert meter.calls["sam_image"] == 12
-        assert abs(meter.total_usd - 0.03) < 1e-9
+        expected_calls = 2 * len(ALWAYS_ON_CONCEPTS)
+        assert meter.calls["sam_image"] == expected_calls
+        assert abs(meter.total_usd - expected_calls * .0025) < 1e-9
         assert spark.calls == 1
         assert p.last_frame_index == 59 and p.result_age_s == 0
         assert p.verification_age_s == 29 and p.local_tracking_active
