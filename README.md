@@ -35,6 +35,7 @@ Copy-Item .env.example .env      # then add MODEL_API_KEY and the phone camera U
 | Calibrate with the markers and mark the heater | `.\.venv\Scripts\python.exe scripts\calibrate.py --image data\photos\setup.jpg --layout data\markers_layout.example.json` |
 | Teach it the heater's power light (on, then off) | `.\.venv\Scripts\python.exe scripts\calibrate_light.py --source phone` |
 | Extract the clearance rule from a manual | `.\.venv\Scripts\python.exe scripts\extract_rules.py data\manuals\heater.pdf` |
+| Or find the manual on the web from the heater's name | `.\.venv\Scripts\python.exe scripts\extract_rules.py --find "Lasko 754200"` |
 | Run SAM 3.1 on photos, with distances if calibrated | `.\.venv\Scripts\python.exe scripts\sam_photos.py data\photos --spark` |
 
 Phone camera: the [Android IP Camera](https://github.com/DigitallyRefined/android-ip-camera) app. Set `CAMERA_URL=https://PHONE_IP:4444/video/mjpeg` and the app's username and password in `.env`.
@@ -67,6 +68,15 @@ cd web; npm install; npm run build; cd ..
 The simulator renders a synthetic overhead view with real ArUco markers, a heater whose power light follows a simulated plug, and scripted objects. Everything after the frame (calibration, geometry, safety state machine, verification, incident log, and UI) is the real code, and the UI labels the scene **SIMULATED**.
 
 For frontend development, keep the server running and use `npm run dev` in `web/` (http://localhost:5173). Vite proxies `/api`, `/ws`, and `/stream.mjpg` to port 8000.
+
+### Clearance rule
+
+The **Clearance rule** card sets the distance enforced on each side of the heater. Until a rule is approved, every side uses `DEFAULT_CLEARANCE_IN` (36 in).
+
+- **Find manual:** type the heater's brand and model. Muse Spark searches the web (`web_search`) for the owner's manual PDF. The server downloads it, accepting public http(s) addresses only and checking that it is really a PDF, and Muse Wonder reads the clearance distances with a quote and page. If a site blocks the download, Muse Spark reads the PDF from its URL on Meta's servers instead. If a document states no distance, the next link is tried. A lookup takes about 1–2 minutes and costs about $0.50. Downloaded manuals are kept in `data/manuals/`. You can also upload the PDF yourself.
+- **Edit:** type any distance from 1 to 240 in on each side, or set all sides at once. The suggested values from a manual are the stricter of the manual and the default. You can lower them, but the dashboard and event log warn when a side is below the default.
+
+Nothing is enforced until you approve it.
 
 The dashboard's visual design uses the Wayfind theme from [Hallmark](https://www.usehallmark.com) (installed for this project in `.agents/skills/hallmark`):
 - Chivo Mono throughout, self-hosted with `@fontsource`.

@@ -42,12 +42,15 @@ export interface Rule {
   back_in: number;
   left_in: number;
   right_in: number;
-  source: "manual" | "default";
+  source: "manual" | "default" | "user";
   quote: string;
   page: number | null;
   heater_model: string;
+  confidence: number;
   approved: boolean;
   approved_at: string | null;
+  manual_url: string;
+  default_in: number;
 }
 
 export interface Spend {
@@ -122,6 +125,16 @@ export interface AppConfig {
   wonder: boolean;
 }
 
+export interface ManualLink {
+  url: string;
+  title: string;
+  official?: boolean;
+  error?: string;
+}
+
+/** What the user approves: the four distances plus where they came from. */
+export type RuleInput = Omit<Rule, "approved" | "approved_at" | "default_in">;
+
 export interface RuleDraft {
   extraction: {
     found: boolean;
@@ -135,7 +148,9 @@ export interface RuleDraft {
     confidence: number;
     notes: string;
   };
-  rule: Omit<Rule, "approved" | "approved_at"> & { confidence: number };
+  rule: RuleInput;
   simulated: boolean;
   minimum_in: number;
+  /** Set when the manual was found on the web from the heater's name. */
+  manual: { url: string; title: string; heater_model: string; read_by: string; tried: ManualLink[] } | null;
 }

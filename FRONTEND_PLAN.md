@@ -125,7 +125,7 @@ engine tick (5 Hz):
 | POST | `/api/reset` | Human reset; returns 409 unless the state is `OFF_*` and the zone is clear |
 | GET | `/api/events?limit=50` | Recent event log entries (JSONL-backed) |
 | POST | `/api/incidents/{id}/report` | Generate or fetch the Muse Wonder incident report |
-| GET, POST | `/api/rules`, `/api/rules/extract` (multipart PDF), `/api/rules/approve` | Read the rule, extract one from a manual, approve it |
+| GET, POST | `/api/rules`, `/api/rules/extract` (multipart PDF), `/api/rules/find` (`{heater_name}`), `/api/rules/approve` | Read the rule, extract one from an uploaded manual or one found on the web, approve or hand-edit it |
 | GET, POST | `/api/calibration/*` | Setup wizard steps |
 | POST | `/api/demo/{camera,api,plug}` | Fault injection; returns 404 unless the server runs with `--demo` |
 

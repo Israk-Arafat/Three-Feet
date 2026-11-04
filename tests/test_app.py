@@ -54,12 +54,59 @@ def test_rule_extract_and_approve(client):
     assert r.status_code == 200
     draft = r.json()
     assert draft["simulated"] is True and draft["rule"]["page"] == 4
-    r = client.post("/api/rules/approve", json={**draft["rule"], "front_in": 12})
+    r = client.post("/api/rules/approve", json=draft["rule"])
     assert r.status_code == 200
-    assert r.json()["rule"]["front_in"] == 36  # never looser than the minimum
+    assert r.json()["rule"]["front_in"] == 36
     assert client.rules_path.exists()
     s = wait_for(client, lambda s: s["rule"]["approved"])
-    assert s["rule"]["source"] == "manual"
+    assert s["rule"]["source"] == "manual" and s["rule"]["default_in"] == 36
+
+
+def test_user_can_set_any_positive_clearance(client):
+    rule = {"front_in": 24, "back_in": 12, "left_in": 48, "right_in": 48, "source": "user"}
+    r = client.post("/api/rules/approve", json=rule)
+    assert r.status_code == 200
+    assert (r.json()["rule"]["front_in"], r.json()["rule"]["back_in"]) == (24, 12)  # no floor on user edits
+    s = wait_for(client, lambda s: s["rule"]["source"] == "user")
+    assert s["rule"]["left_in"] == 48 and s["rule"]["approved"]
+    events = client.get("/api/events", params={"limit": 1000}).json()
+    assert any("below the 36 in default on the front, back" in e["text"] for e in events)
+
+
+@pytest.mark.parametrize("bad", [{"front_in": 0}, {"front_in": -5}, {"front_in": 500}, {"source": "magic"}])
+def test_approve_rejects_invalid_rules(client, bad):
+    rule = {"front_in": 36, "back_in": 36, "left_in": 36, "right_in": 36, "source": "user", **bad}
+    assert client.post("/api/rules/approve", json=rule).status_code == 422
+
+
+def test_find_manual_by_name_simulated(client):
+    r = client.post("/api/rules/find", json={"heater_name": "  Lasko   754200 "})
+    assert r.status_code == 200
+    draft = r.json()
+    assert draft["simulated"] is True
+    assert draft["manual"]["heater_model"] == "Lasko 754200"
+    assert draft["rule"]["page"] == 4 and draft["rule"]["source"] == "manual"
+    assert client.post("/api/rules/find", json={"heater_name": "x"}).status_code == 422
+
+
+def test_find_manual_reports_links_it_could_not_download(client, monkeypatch):
+    from three_feet.perception.manual_finder import ManualNotFound
+
+    class FakeWonder:
+        client = meter = None
+
+    class FailingFinder:
+        def __init__(self, *args):
+            pass
+
+        def find(self, name):
+            raise ManualNotFound("couldn't download", [{"url": "https://example.com/m.pdf", "error": "HTTP 403"}])
+
+    monkeypatch.setattr(client.app.state.engine, "wonder", FakeWonder())
+    monkeypatch.setattr(app_module, "ManualFinder", FailingFinder)
+    r = client.post("/api/rules/find", json={"heater_name": "Lasko 754200"})
+    assert r.status_code == 404
+    assert r.json()["detail"]["candidates"][0]["error"] == "HTTP 403"
 
 
 def test_rejects_non_pdf(client):

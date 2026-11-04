@@ -46,13 +46,14 @@ class ClearanceRule:
     back_in: float
     left_in: float
     right_in: float
-    source: str  # "manual" | "default"
+    source: str  # "manual" | "default" | "user" (distances typed in by the user)
     quote: str = ""
     page: int | None = None
     heater_model: str = ""
     confidence: float = 0.0
     approved: bool = False
     approved_at: str | None = None
+    manual_url: str = ""  # where the manual was found on the web, if it was not uploaded
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), indent=2)

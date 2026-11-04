@@ -1,16 +1,26 @@
-import type { AppConfig, Incident, RuleDraft, SetupState, ViewGeometry } from "../types";
+import type { AppConfig, Incident, ManualLink, RuleDraft, RuleInput, SetupState, ViewGeometry } from "../types";
+
+/** A failed request. `links` carries manual links the server tried, when a manual search fails. */
+export class ApiError extends Error {
+  constructor(message: string, readonly links: ManualLink[] = []) {
+    super(message);
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init);
   if (!res.ok) {
-    let detail = res.statusText;
+    let detail: unknown = res.statusText;
     try {
       const body = await res.json();
       detail = body.detail ?? detail;
     } catch {
       /* not JSON */
     }
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    if (typeof detail === "string") throw new ApiError(detail);
+    const d = detail as { message?: string; candidates?: ManualLink[] };
+    if (typeof d?.message === "string") throw new ApiError(d.message, d.candidates ?? []);
+    throw new ApiError(JSON.stringify(detail));
   }
   return res.json() as Promise<T>;
 }
@@ -38,7 +48,8 @@ export const api = {
     form.append("file", file);
     return request<RuleDraft>("/api/rules/extract", { method: "POST", body: form });
   },
-  approveRule: (rule: RuleDraft["rule"]) => post<{ ok: boolean }>("/api/rules/approve", rule),
+  findManual: (heater_name: string) => post<RuleDraft>("/api/rules/find", { heater_name }),
+  approveRule: (rule: RuleInput) => post<{ ok: boolean }>("/api/rules/approve", rule),
   demo: {
     camera: (on: boolean) => post<{ via: string }>("/api/demo/camera", { on }),
     api: (on: boolean) => post("/api/demo/api", { on }),

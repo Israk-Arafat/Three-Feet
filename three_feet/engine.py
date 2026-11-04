@@ -734,6 +734,8 @@ class Engine:
                 "front_in": rule.front_in, "back_in": rule.back_in, "left_in": rule.left_in,
                 "right_in": rule.right_in, "source": rule.source, "quote": rule.quote, "page": rule.page,
                 "heater_model": rule.heater_model, "approved": rule.approved, "approved_at": rule.approved_at,
+                "confidence": rule.confidence, "manual_url": rule.manual_url,
+                "default_in": self.settings.default_clearance_in,
             },
             "power": {"reachable": status.reachable, "on": status.on, "watts": power_w, "metering": status.metering,
                       "history": list(self._power_history), "plug": getattr(self.switch, "name", "?")},

@@ -14,14 +14,17 @@ import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from typing import Literal
+
 from fastapi import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .calibration import CalibrationFile
 from .config import CALIBRATION_PATH, REPO_ROOT, RULES_PATH, get_settings
 from .engine import Engine, NullPerception
+from .perception.manual_finder import ManualFinder, ManualNotFound, clean_heater_name
 from .perception.meta_client import CostMeter, make_client
 from .perception.wonder import ClearanceRule, WonderClient, rule_from_extraction
 from .safety.actuator import DryRunPlug, make_switch
@@ -40,16 +43,24 @@ SIM_EXTRACTION = {
 
 # Request bodies live at module level: with postponed annotations, FastAPI can't resolve classes
 # defined inside create_app() and would silently treat them as query parameters.
+MAX_CLEARANCE_IN = 240.0
+
+
 class ApproveBody(BaseModel):
-    front_in: float
-    back_in: float
-    left_in: float
-    right_in: float
-    source: str
+    front_in: float = Field(gt=0, le=MAX_CLEARANCE_IN)
+    back_in: float = Field(gt=0, le=MAX_CLEARANCE_IN)
+    left_in: float = Field(gt=0, le=MAX_CLEARANCE_IN)
+    right_in: float = Field(gt=0, le=MAX_CLEARANCE_IN)
+    source: Literal["manual", "default", "user"]
     quote: str = ""
     page: int | None = None
     heater_model: str = ""
     confidence: float = 0.0
+    manual_url: str = ""
+
+
+class FindManualBody(BaseModel):
+    heater_name: str = Field(min_length=2, max_length=120)
 
 
 class Toggle(BaseModel):
@@ -268,18 +279,56 @@ def create_app() -> FastAPI:
                       + (f"p.{rule.page} — awaiting approval" if extraction.get("found") else "no clearance found"),
               {"simulated": simulated})
         return {"extraction": extraction, "rule": rule.__dict__, "simulated": simulated,
-                "minimum_in": get_settings().default_clearance_in}
+                "minimum_in": get_settings().default_clearance_in, "manual": None}
+
+    @app.post("/api/rules/find")
+    async def find_rule(body: FindManualBody) -> dict:
+        """Heater name -> Muse Spark web search for the manual PDF -> Muse Wonder reads it -> draft rule."""
+        e = eng()
+        name = clean_heater_name(body.heater_name)
+        if len(name) < 2:
+            raise HTTPException(422, "Enter the heater's brand and model")
+        if e.wonder is None:
+            if e.mode != "sim":
+                raise HTTPException(503, "Manual search unavailable: set MODEL_API_KEY")
+            extraction = {**SIM_EXTRACTION, "heater_model": f"SIMULATED {name}"}
+            manual = {"url": "", "title": "Simulated manual", "heater_model": name, "read_by": "simulated",
+                      "tried": []}
+            simulated = True
+        else:
+            finder = ManualFinder(e.wonder)
+            try:
+                reading = await asyncio.to_thread(finder.find, name)
+            except ManualNotFound as exc:
+                e.log("rule", f"No readable manual found for {name}")
+                raise HTTPException(404, {"message": str(exc), "candidates": exc.candidates}) from exc
+            except Exception as exc:
+                raise HTTPException(502, f"Manual search failed: {exc}") from exc
+            extraction = reading.extraction
+            manual = {"url": reading.url, "title": reading.title, "heater_model": reading.heater_model,
+                      "read_by": reading.read_by, "tried": reading.tried}
+            simulated = False
+        rule = rule_from_extraction(extraction, get_settings().default_clearance_in)
+        rule.manual_url = manual["url"]
+        e.log("rule", f"Found the {manual['heater_model']} manual"
+                      + (f" ({manual['url']})" if manual["url"] else "") + ": "
+                      + (f"p.{rule.page} — awaiting approval" if extraction.get("found") else "no clearance found"),
+              {"simulated": simulated})
+        return {"extraction": extraction, "rule": rule.__dict__, "simulated": simulated,
+                "minimum_in": get_settings().default_clearance_in, "manual": manual}
 
     @app.post("/api/rules/approve")
     def approve_rule(body: ApproveBody) -> dict:
         minimum = get_settings().default_clearance_in
         rule = ClearanceRule(**body.model_dump())
-        # The approved rule can never be looser than the configured minimum.
-        rule.front_in, rule.back_in = max(rule.front_in, minimum), max(rule.back_in, minimum)
-        rule.left_in, rule.right_in = max(rule.left_in, minimum), max(rule.right_in, minimum)
         rule.approve()
         rule.save()
-        eng().set_rule(rule)
+        e = eng()
+        e.set_rule(rule)
+        below = [side for side in ("front", "back", "left", "right") if getattr(rule, f"{side}_in") < minimum]
+        if below:
+            e.log("rule", f"Approved clearance below the {minimum:.0f} in default on the {', '.join(below)}",
+                  {"sides": below, "default_in": minimum})
         return {"ok": True, "rule": rule.__dict__}
 
     # -- setup ------------------------------------------------------------------------------------
