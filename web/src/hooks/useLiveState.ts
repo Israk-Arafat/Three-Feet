@@ -32,7 +32,12 @@ export function useLiveState(): LiveState {
         retry = 500;
       };
       socket.onmessage = (ev) => {
-        const msg = JSON.parse(ev.data);
+        let msg;
+        try {
+          msg = JSON.parse(ev.data);
+        } catch {
+          return;
+        }
         if (msg.type === "state") {
           lastStateAt.current = Date.now();
           setState(msg as StateMessage);

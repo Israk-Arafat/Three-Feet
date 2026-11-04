@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { capitalize, humanFlag } from "../lib/format";
 import type { SafetyState, StateMessage } from "../types";
@@ -48,6 +48,7 @@ export function StateBanner({
   const needsSetup = !!live && !live.calibration.configured;
   const title = live?.reset_pending
     ? live.reset_cancelled ? "Cancelling power restoration" : "Turning heater on"
+    : !state ? "Connecting to Three Feet"
     : needsSetup && tone === "unknown" ? "Set up your heater"
     : look.title;
   const worst = live?.objects[0];
@@ -57,6 +58,8 @@ export function StateBanner({
     detail = live.reset_cancelled
       ? "Power restoration stopped. Requesting power off."
       : "Restoring plug power and checking the clearance zone.";
+  } else if (!state) {
+    detail = connected ? "Waiting for live data." : "Reaching the server.";
   } else if (!live) {
     detail = connected ? "Waiting for live data." : "Lost the server. Reconnecting.";
   } else if (tone === "unknown") {
@@ -77,6 +80,12 @@ export function StateBanner({
   } else {
     detail = "Power did not drop after retrying. Go to the heater now.";
   }
+
+  // A background tab shows the verdict, and a warning mark when it needs attention.
+  const needsAttention = !!state && ["warn", "verify", "alarm", "unknown"].includes(tone);
+  useEffect(() => {
+    document.title = state ? `${needsAttention ? "⚠ " : ""}${title} · Three Feet` : "Three Feet: heater clearance monitor";
+  }, [state, title, needsAttention]);
 
   const countLabel = tone === "warn" ? "Power off in" : tone === "verify" ? "Checking" : tone === "unknown" ? "Fail-safe in" : null;
   const showCount = live && countLabel && live.countdown_s !== null;
@@ -115,18 +124,19 @@ export function StateBanner({
   }
 
   return (
-    <section className="sign fit:h-28" data-tone={tone} role="status" aria-live="assertive">
+    <section className="sign fit:h-28" data-tone={tone} aria-label="Heater safety status">
       <span className="sign__mark">
         <Icon name={look.icon} size={44} strokeWidth={2.5} />
       </span>
-      <div className="min-w-0">
+      {/* Only the verdict is announced; the ticking countdown beside it stays out of the live region. */}
+      <div className="min-w-0" role="status" aria-live={needsAttention ? "assertive" : "polite"} aria-atomic="true">
         <h1 className="sign__title">{title}</h1>
         <p className="sign__detail">{detail}</p>
       </div>
       <div className="sign__side">
         {needsSetup && onSetup && (
           <button type="button" className="btn btn--primary self-center" onClick={onSetup}>
-            Set up heater
+            Set up heater base
           </button>
         )}
         {showCount && (

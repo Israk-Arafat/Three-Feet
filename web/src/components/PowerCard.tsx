@@ -9,9 +9,17 @@ function Sparkline({ values, max }: { values: number[]; max: number }) {
   const top = Math.max(max, ...values, 1);
   const pts = values.map((v, i) => `${(i / (values.length - 1)) * w},${h - (v / top) * (h - 4) - 2}`).join(" ");
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="h-12 w-full text-ink" role="img" aria-label="Power draw over the last 30 seconds">
-      <polyline points={pts} fill="none" stroke="currentColor" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-    </svg>
+    <div>
+      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="h-12 w-full text-ink" role="img" aria-label="Power draw over the last 30 seconds">
+        <line x1="0" x2={w} y1={h - 1} y2={h - 1} stroke="var(--color-rule)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+        <polygon points={`0,${h - 1} ${pts} ${w},${h - 1}`} fill="currentColor" opacity="0.1" />
+        <polyline points={pts} fill="none" stroke="currentColor" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <div className="mt-0.5 flex justify-between text-xs text-muted" aria-hidden="true">
+        <span>30 s ago</span>
+        <span>now</span>
+      </div>
+    </div>
   );
 }
 
