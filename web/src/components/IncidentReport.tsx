@@ -15,13 +15,18 @@ function IncidentReportImpl({
   const [incident, setIncident] = useState<Incident | null>(null);
   const lastReportEvent = useMemo(() => events.filter((e) => e.kind === "report").at(-1)?.id ?? 0, [events]);
 
+  // Load on mount (the report event may be older than the event backlog), after each new report, and when
+  // an open incident closes.
   useEffect(() => {
-    if (!lastReportEvent) return;
+    let active = true;
     api
       .incidents()
-      .then((list) => setIncident(list.find((i) => i.report) ?? null))
+      .then((list) => active && setIncident(list.find((i) => i.report) ?? null))
       .catch(() => undefined);
-  }, [lastReportEvent]);
+    return () => {
+      active = false;
+    };
+  }, [lastReportEvent, openIncident]);
 
   const note = !incident ? undefined : incident.report_source === "muse-wonder" ? "Written by Muse Wonder" : "Written from the log";
 

@@ -67,9 +67,31 @@ function notify(title: string, body: string) {
   }
 }
 
-/** Sound, speech, and notifications on state transitions. Browsers require a click before audio plays. */
+const STORE_KEY = "three-feet.alerts";
+
+const remembered = () => {
+  try {
+    return localStorage.getItem(STORE_KEY) === "on";
+  } catch {
+    return false;
+  }
+};
+
+const remember = (on: boolean) => {
+  try {
+    localStorage.setItem(STORE_KEY, on ? "on" : "off");
+  } catch {
+    /* private mode */
+  }
+};
+
+/**
+ * Sound, speech, and notifications on state transitions. Browsers require a click before audio plays, so a
+ * reload leaves alerts `paused` until the first click or key press anywhere on the page re-arms them.
+ */
 export function useAlerts(state: StateMessage | null, stale: boolean) {
   const [enabled, setEnabled] = useState(false);
+  const [paused, setPaused] = useState(remembered);
   const beeper = useRef(new Beeper());
   const prev = useRef<{ state: SafetyState | null; degraded: string[]; stale: boolean }>({
     state: null,
@@ -80,14 +102,35 @@ export function useAlerts(state: StateMessage | null, stale: boolean) {
   const enable = useCallback(() => {
     beeper.current.unlock();
     if ("Notification" in window && Notification.permission === "default") void Notification.requestPermission();
+    remember(true);
+    setPaused(false);
     setEnabled(true);
     say("Alerts on.");
   }, []);
 
   const disable = useCallback(() => {
     window.speechSynthesis?.cancel();
+    remember(false);
+    setPaused(false);
     setEnabled(false);
   }, []);
+
+  useEffect(() => {
+    if (!paused) return;
+    const resume = (e: Event) => {
+      // The alerts button handles its own click; re-arming on its pointerdown would flip it straight back off.
+      if (e.target instanceof Element && e.target.closest("[data-alerts-toggle]")) return;
+      beeper.current.unlock();
+      setPaused(false);
+      setEnabled(true);
+    };
+    window.addEventListener("pointerdown", resume);
+    window.addEventListener("keydown", resume);
+    return () => {
+      window.removeEventListener("pointerdown", resume);
+      window.removeEventListener("keydown", resume);
+    };
+  }, [paused]);
 
   // Transitions
   useEffect(() => {
@@ -148,5 +191,5 @@ export function useAlerts(state: StateMessage | null, stale: boolean) {
     return () => window.clearInterval(id);
   }, [situation, enabled]);
 
-  return { enabled, enable, disable };
+  return { enabled, paused, enable, disable };
 }

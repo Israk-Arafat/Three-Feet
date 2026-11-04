@@ -23,6 +23,7 @@ export function useLiveState(): LiveState {
     let retry = 500;
     let timer: number | undefined;
     let closed = false;
+    let resync = false; // the next events message is the server's backlog for a new connection
 
     const connect = () => {
       const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -30,6 +31,7 @@ export function useLiveState(): LiveState {
       socket.onopen = () => {
         setConnected(true);
         retry = 500;
+        resync = true;
       };
       socket.onmessage = (ev) => {
         let msg;
@@ -43,9 +45,20 @@ export function useLiveState(): LiveState {
           setState(msg as StateMessage);
           setStale(false);
         } else if (msg.type === "events") {
+          const incoming = msg.events as EventItem[];
+          const backlog = resync;
+          resync = false;
           setEvents((prev) => {
-            const seen = new Set(prev.map((e) => e.id));
-            const merged = [...prev, ...(msg.events as EventItem[]).filter((e) => !seen.has(e.id))];
+            // Event ids restart at 1 when the server restarts. If the backlog reuses an id for a different
+            // event, or ends below what we have, it is a new server run: start over instead of dropping its
+            // events as duplicates.
+            const byId = new Map(prev.map((e) => [e.id, e]));
+            const prevMax = prev.length ? prev[prev.length - 1].id : 0;
+            const nextMax = incoming.length ? incoming[incoming.length - 1].id : 0;
+            const restarted =
+              nextMax < prevMax || incoming.some((e) => byId.has(e.id) && byId.get(e.id)!.t !== e.t);
+            if (backlog && restarted) return incoming.slice(-300);
+            const merged = [...prev, ...incoming.filter((e) => !byId.has(e.id))];
             return merged.slice(-300);
           });
         }

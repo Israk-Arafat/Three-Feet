@@ -45,7 +45,7 @@
 
   /* Panels: one surface, one 2px ink border, head over a hairline. */
   .panel { display: flex; flex-direction: column; min-height: 0; background: var(--color-paper-3); border: var(--rule-bar) solid var(--color-ink); }
-  .panel__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-sm); padding: var(--space-sm) var(--space-md); border-bottom: var(--rule-hair) solid var(--color-rule); }
+  .panel__head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px var(--space-sm); padding: var(--space-sm) var(--space-md); border-bottom: var(--rule-hair) solid var(--color-rule); }
   .panel__body { min-height: 0; padding: var(--space-md); }
   .panel__note { font-size: var(--text-xs); font-weight: 500; color: var(--color-muted); white-space: nowrap; }
 

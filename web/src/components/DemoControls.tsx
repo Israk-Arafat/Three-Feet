@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
 import type { AppConfig } from "../types";
 import { Icon } from "./Icon";
@@ -41,6 +41,14 @@ export function DemoControls({ config, open, onClose }: { config: AppConfig; ope
       setError((e as Error).message);
     }
   };
+
+  useEffect(() => {
+    if (!open) return;
+    // Escape closes the panel, unless a modal dialog is open on top and should close first.
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !document.querySelector("dialog[open]") && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
 
   if (!open) return null;
 

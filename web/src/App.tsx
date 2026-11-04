@@ -60,12 +60,14 @@ export default function App() {
           </button>
           <button
             type="button"
+            data-alerts-toggle
             className={`btn ${alerts.enabled ? "" : "btn--primary"}`}
             aria-pressed={alerts.enabled}
+            title={alerts.paused ? "Alerts were on. Click anywhere to resume them." : undefined}
             onClick={alerts.enabled ? alerts.disable : alerts.enable}
           >
             <Icon name={alerts.enabled ? "bell" : "bellOff"} size={18} />
-            {alerts.enabled ? "Alerts on" : "Turn on alerts"}
+            {alerts.enabled ? "Alerts on" : alerts.paused ? "Resume alerts" : "Turn on alerts"}
           </button>
         </div>
       </header>

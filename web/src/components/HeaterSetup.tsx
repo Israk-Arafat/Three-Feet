@@ -88,8 +88,10 @@ export function HeaterSetup({open,onClose,onSaved}:{open:boolean;onClose:()=>voi
             </svg>}
           </div></div>
           {manual&&<div className="manual-controls"><p>{points.length<4?`Click ${CORNERS[points.length]} (${points.length+1} of 4).` : "All four corners marked. Check the outline, then save."} Face the heater when choosing left and right.</p><div><button type="button" className="btn btn--sm" disabled={!points.length||running} onClick={()=>setPoints(p=>p.slice(0,-1))}>Undo point</button><button type="button" className="btn btn--primary btn--sm" disabled={points.length!==4||running} onClick={()=>act("save")}>Save calibration</button></div></div>}
-        </>:<div className="setup-placeholder"><Icon name="base" size={48}/><p>Your heater base will appear here.</p><span>A higher, diagonal camera view makes the floor footprint easier to see.</span></div>}
-        {setup?.status==="ready"&&<div className="setup-done"><Icon name="check"/><p>{setup.message}</p><button type="button" className="btn btn--primary" onClick={onClose}>Back to live view</button></div>}
+        </>:<div className="setup-placeholder"><Icon name="base" size={48}/>{setup?.calibrated
+          ?<><p>Your heater base is already set up.</p><span>To check it against a fresh camera image, find the base again or mark its corners yourself.</span></>
+          :<><p>Your heater base will appear here.</p><span>A higher, diagonal camera view makes the floor footprint easier to see.</span></>}</div>}
+        {setup?.status==="ready"&&<div className="setup-done"><Icon name="check"/><p>Ready. The danger zone follows this base.</p><button type="button" className="btn btn--primary" onClick={onClose}>Back to live view</button></div>}
       </section>
     </div>
   </dialog>;

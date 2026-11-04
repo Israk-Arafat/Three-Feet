@@ -23,6 +23,24 @@ const KIND: Record<string, { tone: Tone; label: string }> = {
 
 const MAX_ROWS = 80;
 
+const STATE_WORDS: Record<string, string> = {
+  CLEAR: "Clear",
+  WATCH: "Near",
+  WARN: "Too close",
+  VERIFYING: "Checking shutoff",
+  OFF_CONFIRMED: "Off, confirmed",
+  OFF_UNCONFIRMED: "Off, not confirmed",
+};
+
+/** State changes are logged as "WARN → VERIFYING: reason"; show them in the dashboard's words. */
+function describe(e: EventItem): string {
+  const from = e.data?.from, to = e.data?.to;
+  if (e.kind !== "state" || typeof from !== "string" || typeof to !== "string") return e.text;
+  const reason = e.text.split(": ").slice(1).join(": ");
+  const change = `${STATE_WORDS[from] ?? from} → ${STATE_WORDS[to] ?? to}`;
+  return reason ? `${change}. ${reason.charAt(0).toUpperCase()}${reason.slice(1)}` : change;
+}
+
 /** The event board: newest first, one row per event, like a departure board. */
 function TimelineImpl({ events, className = "" }: { events: EventItem[]; className?: string }) {
   const items = useMemo(() => events.slice(-MAX_ROWS).reverse(), [events]);
@@ -56,7 +74,7 @@ function TimelineImpl({ events, className = "" }: { events: EventItem[]; classNa
                         {k.label}
                       </span>
                     </td>
-                    <td>{e.text}</td>
+                    <td>{describe(e)}</td>
                   </tr>
                 );
               })}

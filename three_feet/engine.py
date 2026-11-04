@@ -701,7 +701,7 @@ class Engine:
             put_label(canvas, "No camera feed: status unknown", (40, canvas.shape[0] // 2), PAPER_BGR, 1.2,
                       bg=STATUS_BGR["violation"])
         stamp = datetime.fromtimestamp(d.t).strftime("%H:%M:%S")
-        text = f"{stamp}  {d.banner}" + ("  [SIMULATED]" if self.mode == "sim" else "")
+        text = f"{stamp}  {d.banner.replace('_', ' ')}" + ("  [SIMULATED]" if self.mode == "sim" else "")
         (tw, _), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
         put_label(canvas, text, (canvas.shape[1] - tw - 20, 34), scale=0.7)
         ok, buf = cv2.imencode(".jpg", canvas, [cv2.IMWRITE_JPEG_QUALITY, 80])
