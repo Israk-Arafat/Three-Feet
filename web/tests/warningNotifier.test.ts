@@ -28,3 +28,12 @@ test("people and stale data never notify", () => {
   assert.equal(n.next(scene("WARN", 10), true), null);
   assert.equal(n.next(null, false), null);
 });
+
+test("a warning is not consumed before permission or delivery succeeds", () => {
+  const n = new WarningNotifier();
+  assert.equal(n.next(scene("WARN", 10), false, () => false), null);
+  assert.equal(n.next(scene("WARN", 9), false, () => false), null);
+  const delivered = n.next(scene("WARN", 8), false, () => true);
+  assert.match(delivered!.body, /8 seconds/);
+  assert.equal(n.next(scene("WARN", 7), false, () => { throw new Error("should not send twice"); }), null);
+});

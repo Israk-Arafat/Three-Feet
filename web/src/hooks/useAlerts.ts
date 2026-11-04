@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertPolicy, type AlertPattern } from "../lib/alertPolicy";
 import { WarningNotifier } from "../lib/warningNotifier";
+import { notificationHint, notificationStatus, requestBrowserNotifications, sendBrowserNotification } from "../lib/browserNotifications";
+import type { NotificationStatus } from "../lib/browserNotifications";
 import type { StateMessage } from "../types";
 
 
@@ -8,6 +10,7 @@ class Beeper {
   private ctx: AudioContext | null = null;
 
   unlock() {
+    if (!("AudioContext" in window)) return;
     this.ctx ??= new AudioContext();
     if (this.ctx.state === "suspended") void this.ctx.resume();
   }
@@ -55,15 +58,6 @@ function say(text: string, interrupt = false) {
   window.speechSynthesis.speak(u);
 }
 
-function notify(title: string, body: string) {
-  if (!("Notification" in window) || Notification.permission !== "granted" || !document.hidden) return;
-  const note = new Notification(title, { body, tag: "three-feet-warning", requireInteraction: true });
-  note.onclick = () => {
-    window.focus();
-    note.close();
-  };
-}
-
 const STORE_KEY = "three-feet.alerts";
 
 const remembered = () => {
@@ -89,21 +83,42 @@ const remember = (on: boolean) => {
 export function useAlerts(state: StateMessage | null, stale: boolean) {
   const [enabled, setEnabled] = useState(false);
   const [paused, setPaused] = useState(remembered);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationStatus>(() => notificationStatus());
+  const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
   const beeper = useRef(new Beeper());
   const policy = useRef(new AlertPolicy());
   const notifier = useRef(new WarningNotifier());
   const voicePriority = useRef(0);
+  const notificationRetryAt = useRef(0);
   const latest = useRef({ state, stale });
   latest.current = { state, stale };
 
+  const requestNotifications = useCallback(async () => {
+    const status = await requestBrowserNotifications();
+    setNotificationPermission(status);
+    return status;
+  }, []);
+
+  const testNotification = useCallback(async () => {
+    setNotificationMessage(null);
+    const status = await requestNotifications();
+    if (status !== "granted") {
+      setNotificationMessage(notificationHint(status));
+      return;
+    }
+    if (sendBrowserNotification("Three Feet: test notification", "Browser alerts are connected. This is a test; no heater command was sent.", setNotificationMessage)) {
+      setNotificationMessage("Test notification requested. If no banner appears, check Windows Do not disturb and your browser's notification settings.");
+    }
+  }, [requestNotifications]);
+
   const enable = useCallback(() => {
     beeper.current.unlock();
-    if ("Notification" in window && Notification.permission === "default") void Notification.requestPermission();
+    void requestNotifications();
     remember(true);
     setPaused(false);
     setEnabled(true);
     // Enabling alerts should not queue a greeting ahead of an actual hazard.
-  }, []);
+  }, [requestNotifications]);
 
   const disable = useCallback(() => {
     window.speechSynthesis?.cancel();
@@ -117,8 +132,9 @@ export function useAlerts(state: StateMessage | null, stale: boolean) {
     if (!paused) return;
     const resume = (e: Event) => {
       // The alerts button handles its own click; re-arming on its pointerdown would flip it straight back off.
-      if (e.target instanceof Element && e.target.closest("[data-alerts-toggle]")) return;
+      if (e.target instanceof Element && e.target.closest("[data-alerts-toggle], [data-notification-test]")) return;
       beeper.current.unlock();
+      void requestNotifications();
       setPaused(false);
       setEnabled(true);
     };
@@ -128,15 +144,30 @@ export function useAlerts(state: StateMessage | null, stale: boolean) {
       window.removeEventListener("pointerdown", resume);
       window.removeEventListener("keydown", resume);
     };
-  }, [paused]);
+  }, [paused, requestNotifications]);
+
+  useEffect(() => {
+    const refresh = () => setNotificationPermission(notificationStatus());
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
 
   // Notifications need no audio unlock, so they stay armed after a reload while alerts are `paused`.
   useEffect(() => {
     if (!enabled && !paused) return;
     const check = () => {
       const { state: current, stale: isStale } = latest.current;
-      const notice = notifier.current.next(current, isStale);
-      if (notice) notify(notice.title, notice.body);
+      setNotificationPermission(notificationStatus());
+      if (performance.now() < notificationRetryAt.current) return;
+      notifier.current.next(current, isStale, notice => {
+        const sent = sendBrowserNotification(notice.title, notice.body, setNotificationMessage);
+        if (!sent) notificationRetryAt.current = performance.now() + 5000;
+        return sent;
+      });
     };
     check();
     const timer = window.setInterval(check, 250);
@@ -166,5 +197,6 @@ export function useAlerts(state: StateMessage | null, stale: boolean) {
     };
   }, [enabled]);
 
-  return { enabled, paused, enable, disable };
+  return { enabled, paused, enable, disable, notificationPermission, testNotification,
+    notificationMessage, notificationHelp: notificationHint(notificationPermission) };
 }
