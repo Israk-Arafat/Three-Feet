@@ -272,6 +272,42 @@ def create_app() -> FastAPI:
         return {"ok": True, "rule": rule.__dict__}
 
     # -- setup ------------------------------------------------------------------------------------
+    def setup_call(operation, *args):
+        try:
+            return operation(*args)
+        except SetupError as exc:
+            raise HTTPException(exc.status_code, str(exc)) from exc
+
+    @app.get("/api/setup")
+    def setup_state() -> dict:
+        return app.state.setup.state()
+
+    @app.post("/api/setup/dimensions")
+    def setup_dimensions(body: DimensionsBody) -> dict:
+        return setup_call(app.state.setup.dimensions, body.width_in, body.depth_in)
+
+    @app.post("/api/setup/capture")
+    def setup_capture(body: DimensionsBody) -> dict:
+        return setup_call(app.state.setup.capture, body.width_in, body.depth_in)
+
+    @app.post("/api/setup/auto", status_code=202)
+    def setup_auto(body: DimensionsBody) -> dict:
+        return setup_call(app.state.setup.auto, body.width_in, body.depth_in)
+
+    @app.post("/api/setup/manual")
+    def setup_manual(body: ManualSetupBody) -> dict:
+        return setup_call(app.state.setup.manual, body.job_id, body.corners_px, body.width_in, body.depth_in)
+
+    @app.get("/api/setup/image")
+    def setup_image(job_id: str | None = None) -> FileResponse:
+        path = setup_call(app.state.setup.image_path, job_id, False)
+        return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/setup/overlay")
+    def setup_overlay(job_id: str | None = None) -> FileResponse:
+        path = setup_call(app.state.setup.image_path, job_id, True)
+        return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
     @app.post("/api/calibration/reference")
     def set_reference() -> dict:
         if not eng().set_reference():

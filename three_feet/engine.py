@@ -161,6 +161,11 @@ class Engine:
         self.mode, self.demo, self.source_label = mode, demo, source_label
         self.clock, self.tick_hz = clock, tick_hz
         self.sm = SafetyStateMachine(replace(SafetyConfig.from_settings(settings), require_indicator=probe is not None))
+        self._state_lock = threading.Lock()
+        self._reset_lock = threading.Lock()
+        self._reset_pending = False
+        self._reset_cancelled = False
+        self._last_observation: Observation | None = None
         self.plug = PlugMonitor(switch)
 
         self.fault_camera = False
