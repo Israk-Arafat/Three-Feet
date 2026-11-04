@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 DISTANCE_FIELDS = ["recorded_at", "setup", "object", "measured_in", "estimated_in", "error_in", "required_in", "notes"]
-SHUTOFF_FIELDS = ["recorded_at", "setup", "command_succeeded", "plug_off", "indicator_off", "latency_s", "notes"]
+SHUTOFF_FIELDS = ["recorded_at", "setup", "command_succeeded", "latency_s", "notes"]
 
 
 def nonnegative(value: str) -> float:
@@ -60,22 +60,20 @@ def report(distances: list[dict], shutoffs: list[dict]) -> str:
                     ("measured_in", "estimated_in", "error_in", "required_in"))
                 errors.append(abs(estimate - actual))
                 coverage += abs(estimate - actual) <= error
-                actual_inside, predicted_inside = actual < required, estimate - error < required
+                actual_inside, predicted_inside = actual < required, estimate < required
                 missed += actual_inside and not predicted_inside
                 false_alarms += predicted_inside and not actual_inside
             lines += [f"Distance trials: **{len(ds)}**. Mean absolute error: **{sum(errors) / len(errors):.2f} in**. "
                       f"Maximum absolute error: **{max(errors):.2f} in**.", "",
                       f"Actual distance within estimated ± range: **{coverage}/{len(ds)}**. "
-                      f"Missed boundary violations: **{missed}**. Conservative false alarms: **{false_alarms}**.", ""]
+                      f"Missed boundary violations: **{missed}**. False alarms: **{false_alarms}**.", ""]
         if ss:
-            confirmed = sum(r["plug_off"] == "yes" and r["indicator_off"] == "yes" for r in ss)
             succeeded = sum(r["command_succeeded"] == "yes" for r in ss)
             latency = [nonnegative(r["latency_s"]) for r in ss if r["latency_s"]]
             lines += [f"Shutdown attempts: **{len(ss)}**. Command acknowledgements: **{succeeded}**. "
-                      f"Failed commands: **{len(ss) - succeeded}**. Independently confirmed "
-                      f"(plug off + light dark): **{confirmed}**. Unconfirmed: **{len(ss) - confirmed}**.", ""]
+                      f"Failed commands: **{len(ss) - succeeded}**.", ""]
             if latency:
-                lines += [f"Recorded confirmation latency ({len(latency)} trials): mean "
+                lines += [f"Recorded command latency ({len(latency)} trials): mean "
                           f"**{sum(latency) / len(latency):.2f} s**, max **{max(latency):.2f} s**.", ""]
     if not distances and not shutoffs:
         lines += ["No trials recorded. Accuracy and shutdown reliability have not been measured.", ""]
@@ -100,8 +98,6 @@ def main() -> None:
                 sub.add_argument(f"--{flag}", type=nonnegative, required=True)
         else:
             sub.add_argument("--command-succeeded", choices=("yes", "no"), required=True)
-            for flag in ("plug-off", "indicator-off"):
-                sub.add_argument(f"--{flag}", choices=("yes", "no", "unknown"), required=True)
             sub.add_argument("--latency-s", type=nonnegative)
     summary = commands.add_parser("report", help="Summarize recorded trials by setup")
     summary.add_argument("--distances", type=Path)
@@ -121,9 +117,8 @@ def main() -> None:
             path = row.pop("csv")
             row.pop("command")
             if args.command == "shutoff":
-                confirmed = args.plug_off == "yes" and args.indicator_off == "yes"
-                if args.latency_s is not None and not confirmed:
-                    parser.error("Confirmation latency requires both plug off and indicator off")
+                if args.latency_s is not None and args.command_succeeded != "yes":
+                    parser.error("Command latency requires a successful command acknowledgement")
             append_trial(path, DISTANCE_FIELDS if args.command == "distance" else SHUTOFF_FIELDS, row)
             print(f"Recorded trial in {path}")
     except (ValueError, OSError, argparse.ArgumentTypeError) as exc:

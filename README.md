@@ -1,12 +1,12 @@
 # Three Feet
 
-An experimental space-heater safety helper for the **Meta Global AI Developer Hackathon**. Three Feet aims to detect objects in a heater's clearance zone, explain the concern, attempt to turn the heater off, and report whether shutdown was independently confirmed.
+An experimental space-heater safety helper for the **Meta Global AI Developer Hackathon**. Three Feet aims to detect objects in a heater's clearance zone, explain the concern, send an OFF request to the plug, and show the command outcome and reported plug state.
 
-![Simulator dashboard showing distance uncertainty and two-check shutdown confirmation](docs/dashboard-simulator.jpg)
+![Simulator dashboard showing distance uncertainty and an OFF request](docs/dashboard-simulator.jpg)
 
 *Synthetic simulator scene; this screenshot is not a physical validation trial.*
 
-**Implemented system:** One fixed Android phone camera, a reviewed floor-plane calibration, Meta SAM 3.1 and Muse Spark perception, a deterministic safety loop, and a GE Cync smart plug. Cync reports relay state; it has **no power meter**. Independent shutoff confirmation requires both the plug reporting off and a calibrated camera observation of the heater's power light going dark.
+**Implemented system:** One fixed Android phone camera, a reviewed floor-plane calibration, Meta SAM 3.1 and Muse Spark perception, a deterministic safety loop, and a GE Cync smart plug. Cync reports relay state; it has **no power meter**. The dashboard displays its reported state separately from OFF command outcomes.
 
 ```mermaid
 flowchart LR
@@ -15,13 +15,12 @@ flowchart LR
   Models --> Geometry
   Geometry --> Safety[Deterministic safety loop]
   Safety --> Plug[Cync plug OFF request]
-  Plug --> Verification[Plug report plus camera power-light check]
-  Verification --> Dashboard[Live dashboard and incident evidence]
+  Plug --> Dashboard[Live dashboard and command outcome]
   Manual[Manual PDF] --> Wonder[Muse Wonder plus human review]
   Wonder --> Safety
 ```
 
-The dashboard shows estimated distances with uncertainty, clearance provenance, shutdown countdowns, separate plug and camera evidence, and incident reports. The simulator exercises the same geometry, safety loop, verification, and UI with synthetic observations. Run it without hardware using the dashboard quickstart below.
+The dashboard shows estimated distances with uncertainty, clearance provenance, shutdown countdowns, plug status, and incident reports. The simulator exercises the same geometry, safety loop, plug requests, and UI with synthetic observations. Run it without hardware using the dashboard quickstart below.
 
 **Validation:** No physical accuracy or reliability results are claimed here. Record trials and generate a report using [VALIDATION.md](./VALIDATION.md). A demo video and physical measurements must be supplied before presenting the project as empirically validated.
 
@@ -34,11 +33,14 @@ The dashboard shows estimated distances with uncertainty, clearance provenance, 
 
 It has unit and end-to-end tests but has **not yet been validated** against real measurements or real shutoffs. This is a research prototype, not a fire-safety device; do not rely on it to prevent fires or replace manufacturer instructions, smoke alarms, or safe heater practices.
 
-### Monitoring and verification behavior
+### Monitoring and power commands
 
-- Confirmation always needs **two checks**, including when the light probe is missing. Without it, shutdown stays unconfirmed, OFF requests are retried, and a person is alerted to check the heater. Configure the probe with `scripts/calibrate_light.py`.
-- Measurement uncertainty is an engineering estimate, not a statistical confidence interval. Decisions use the conservative lower end of the distance range.
-- Model health requires successful segmentation of a recent frame. By default, results expire after 5 seconds and idle scenes refresh every 2 seconds. Slow calls do not refresh the timestamp of their input frames. Budget exhaustion pauses model calls and marks monitoring degraded; local catch-all detection still runs. Reset is refused while model health is degraded.
+- After the countdown, the app sends OFF and shows **Power off requested**. Requests stay latched until a guarded manual reset. Only failed command calls are retried (`OFF_COMMAND_RETRIES`, default 2); the plug state is displayed separately.
+
+- Measurement uncertainty is an engineering estimate, not a statistical confidence interval. The red zone uses the nominal object measurement. Only overlap with the red zone starts the shutoff countdown. A fixed 2-inch outside watch band is amber; uncertainty never expands that band.
+- SAM initializes object masks, then local optical flow tracks their positions between API checks. New scene content, lost tracking, or a camera gap triggers an early SAM check; otherwise SAM checks every 30 seconds (`PERCEPTION_IDLE_REFRESH_S`). Spark inventories the scene at most once per 60 seconds (`PERCEPTION_INVENTORY_REFRESH_S`); per-object hazard judgments are retained with track identities.
+- Camera/local tracking results expire after 5 seconds (`PERCEPTION_MAX_AGE_S`). SAM verification has a separate 45-second deadline (`PERCEPTION_VERIFICATION_MAX_AGE_S`). Unknown scene changes and failed checks mark monitoring degraded until a successful SAM check; local frames cannot renew the SAM deadline. Slow calls retain their input frame's timestamp. Budget exhaustion pauses model calls and marks monitoring degraded; local catch-all detection still runs. Reset is refused while model health is degraded.
+- At six concepts per check and $0.0025 per SAM image, an unchanged scene uses about $1.80/hour for SAM before token-priced calls, versus about $27/hour at the former two-second interval. Movement that local tracking cannot explain increases API use. These are scheduling estimates, not measured physical tracking accuracy or a billing guarantee.
 - `DEFAULT_CLEARANCE_IN` is the active fallback and suggestion floor, not a guarantee of the manufacturer's requirement. Approved user distances remain explicitly labeled as custom, including warnings below the active default. Finding a manual requires human review before its values take effect.
 - Dashboard and report times use `DISPLAY_TIMEZONE` (default `America/New_York`) with timezone labels or UTC offsets.
 - Backend tests isolate settings and saved rules from your local `.env`. Run `python -m pytest`; frontend validation is `npm run build` in `web/`.
@@ -65,7 +67,6 @@ Copy-Item .env.example .env      # then add MODEL_API_KEY and the phone camera U
 | Quick setup: no printing, just measure the heater's base (width, depth in inches) and click its 4 corners | `.\.venv\Scripts\python.exe scripts\calibrate.py --source phone --heater 14 9` |
 | Or print ArUco markers for tighter error bars (writes `data\markers\aruco_markers.pdf`; print at Actual size) | `.\.venv\Scripts\python.exe tools\print_markers.py` |
 | Calibrate with the markers and mark the heater | `.\.venv\Scripts\python.exe scripts\calibrate.py --image data\photos\setup.jpg --layout data\markers_layout.example.json` |
-| Teach it the heater's power light (on, then off) | `.\.venv\Scripts\python.exe scripts\calibrate_light.py --source phone` |
 | Extract the clearance rule from a manual | `.\.venv\Scripts\python.exe scripts\extract_rules.py data\manuals\heater.pdf` |
 | Or find the manual on the web from the heater's name | `.\.venv\Scripts\python.exe scripts\extract_rules.py --find "Lasko 754200"` |
 | Run SAM 3.1 on photos, with distances if calibrated | `.\.venv\Scripts\python.exe scripts\sam_photos.py data\photos --spark` |
@@ -76,15 +77,15 @@ Use your measured dimensions for `--heater`. Automatic setup inspects the full f
 
 ### Smart plug
 
-Three Feet controls a **GE Cync Indoor Plug** (`PLUG_KIND=cync`, `PLUG_NAME=<name in the Cync app>`). The plug has no power meter, so a shutoff is confirmed by the plug's own report that it is off plus the heater's power light going dark on camera. `PLUG_KIND=dryrun` is a simulated plug for the simulator and tests.
+Three Feet controls a **GE Cync Indoor Plug** (`PLUG_KIND=cync`, `PLUG_NAME=<name in the Cync app>`). The plug has no power meter and reports only its relay state. `PLUG_KIND=dryrun` is a simulated plug for the simulator and tests.
 
 To set up the Cync plug:
 1. Install the extra: `.\.venv\Scripts\python.exe -m pip install -e ".[cync]"`.
 2. Close the Cync phone app (Cync allows one connection per account), then log in once: `.\.venv\Scripts\python.exe scripts\cync_login.py`. It asks for the emailed code, saves tokens (never the password) to the git-ignored `data/cync_token.json`, and lists your device names.
 3. With a lamp plugged in, check it: `.\.venv\Scripts\python.exe scripts\plug_test.py --off`.
-4. To restore the test lamp from the CLI: `.\.venv\Scripts\python.exe scripts\plug_test.py --on`. Use `--on` only with a lamp; it energizes the connected device. In the dashboard, **Reset and turn on** restores plug power and resumes monitoring after a shutoff, only with a fresh camera view, valid calibration, available API, reachable plug, and clear zone. Power is never restored automatically when an object leaves. A failed ON request is not retried; the engine requests OFF and runs shutdown verification and OFF retries.
+4. To restore the test lamp from the CLI: `.\.venv\Scripts\python.exe scripts\plug_test.py --on`. Use `--on` only with a lamp; it energizes the connected device. In the dashboard, **Reset and turn on** restores plug power and resumes monitoring after a shutoff, only with a fresh camera view, valid calibration, available API, reachable plug, and clear zone. Power is never restored automatically when an object leaves. A failed ON request is not retried; the engine requests OFF and retries failed OFF commands.
 
-The Cync driver uses the unofficial [pycync](https://github.com/Kinachi249/pycync) library through Cync's cloud. Set up the calibration's power-light check: without a meter it is the only independent confirmation.
+The Cync driver uses the unofficial [pycync](https://github.com/Kinachi249/pycync) library through Cync's cloud.
 
 ### Changing the camera or plug from the dashboard
 
@@ -92,7 +93,7 @@ Click **Camera and plug** in the header instead of editing `.env` and restarting
 
 - **Camera:** enter the stream address (or a webcam number such as `0`), optionally a username and password, then **Test camera** and **Use this camera**. The new camera is opened first and only replaces the old one once a picture arrives, so a wrong address changes nothing.
 - **Plug:** choose a GE Cync plug or the simulated test plug. For Cync you can sign in with your email, password and the emailed code, then pick the plug by name. The password is never stored, only the tokens in `data/cync_token.json`.
-- **Heater on:** if the heater is on (or its state is unknown) the panel warns you and the button reads "…anyway". It never blocks a camera change. A plug change is refused only while a shutoff is being verified, because that proof belongs to the current plug.
+- **Heater on:** if the heater is on (or its state is unknown) the panel warns you and the button reads "…anyway". It never blocks a camera change. A plug change is refused while a power command is pending.
 - **After a camera change** the detections and the empty-zone photo are cleared. Check that the danger zone still sits on the heater; redo **Heater setup** if the view moved.
 - Choices are saved to the git-ignored `data/connections.json` (it holds a camera password if you set one). Plain `python -m three_feet.app` starts live and uses them: with nothing saved it starts with "no camera" (and the plug from `PLUG_KIND` in `.env`, `dryrun` by default) until you add them here. Explicit flags win: `--source <address>` beats a saved camera (only `--source phone`, the default, uses it), and `--plug <kind>` beats a saved plug of a different kind. Otherwise the saved choice is used, then `.env`. The simulated scene (`--source sim`) has nothing to change.
 
@@ -116,7 +117,7 @@ cd web; npm install; npm run build; cd ..
 .\.venv\Scripts\python.exe -m three_feet.app --source data\photos --demo           # replay photos with real API calls
 ```
 
-The simulator renders a synthetic overhead view with real ArUco markers, a heater whose power light follows a simulated plug, and scripted objects. Everything after the frame (calibration, geometry, safety state machine, verification, incident log, and UI) is the real code, and the UI labels the scene **SIMULATED**.
+The simulator renders a synthetic overhead view with real ArUco markers, a heater whose power light follows a simulated plug, and scripted objects. Everything after the frame (calibration, geometry, safety state machine, plug requests, incident log, and UI) is the real code, and the UI labels the scene **SIMULATED**.
 
 For frontend development, keep the server running and use `npm run dev` in `web/` (http://localhost:5173). Vite proxies `/api`, `/ws`, and `/stream.mjpg` to port 8000.
 
@@ -143,7 +144,7 @@ Objects such as blankets, curtains, and boxes can end up too close to a space he
 
 > I want to build Three Feet, a safety helper for space heaters. Space heaters cause 29% of US home heating fires but 77% of the deaths, often because a blanket, curtain or box ends up too close.
 >
-> Two cheap cameras watch the area around the heater. SAM 3.1 outlines the heater and nearby objects so the system can measure, in inches, how close each one is. Muse Spark judges what's flammable, and Muse Wonder reads the heater's manual for its required clearances and keeps watch through the evening. If something stays too close, an ESP32 turns the heater off with its own remote and confirms it's off.
+> Two cheap cameras watch the area around the heater. SAM 3.1 outlines the heater and nearby objects so the system can measure, in inches, how close each one is. Muse Spark judges what's flammable, and Muse Wonder reads the heater's manual for its required clearances and keeps watch through the evening. If something stays too close, an ESP32 turns the heater off with its own remote and logs the OFF request.
 >
 > I'll test it with a tape measure and real shutoffs.
 
@@ -151,14 +152,14 @@ The 29% and 77% figures are from NFPA's 2019–2023 estimate and include **heati
 
 ## Proposed prototype
 
-The core demonstration is **perceive → reason → act → verify**:
+The core demonstration is **perceive → reason → act**:
 
 1. Observe one fixed heater and its surroundings with a calibrated camera setup. Use SAM 3.1 to segment the heater and nearby objects.
 2. Estimate an object's distance or determine whether it enters a defined clearance zone. Segmentation alone does not measure real-world distance; camera calibration, geometry, and empirical testing are required. Two cameras are a proposed approach, not yet a proven solution.
 3. Use Muse Spark to help describe objects and explain potential hazards. Treat unknown objects conservatively; a model's material or flammability guess must not be the sole reason to dismiss a hazard.
 4. Use Muse Wonder to extract a clearance requirement from the heater's manual, with the source visible and a person reviewing the result. Use a reviewed rule for the demonstration rather than silently trusting uncertain extraction.
-5. When an object remains in the zone, issue a warning and attempt shutdown through an ESP32 and the heater's supported remote. Independently check the heater's state; distinguish an off command from a confirmed shutdown.
-6. Display uncertainty and failures, including loss of camera, API, or shutdown verification. Do not present missing observations as proof of safety.
+5. When an object remains in the zone, issue a warning and send an OFF request through the smart plug. Log whether the command returned successfully or failed.
+6. Display uncertainty and failures, including loss of camera, API, or plug connectivity. Do not present missing observations as proof of safety.
 
 Start with one heater, a controlled camera position, and one complete working loop. Add complexity only after the basic loop is demonstrable. Use an unpowered heater or non-heating stand-in for close-object staging and demonstrate remote operation separately under supervision.
 
@@ -166,12 +167,12 @@ Start with one heater, a controlled camera position, and one complete working lo
 
 - Compare distance estimates against tape measurements at multiple distances, especially around the clearance boundary; report errors and the conditions tested.
 - Test multiple object types, placements, lighting conditions, and occlusions. Record missed detections and false alarms, including uncertainty cases.
-- Count attempted, successful, failed, and independently confirmed shutoffs. Exercise camera and API disconnects and failed confirmation.
+- Count attempted, acknowledged, and failed OFF commands. Exercise camera and API disconnects and command failures.
 - Report the number of trials, setup, and limitations. Do not imply that a small demonstration establishes real-world safety or reliability.
 
 ### Demo outline
 
-Show the physical scene alongside the interface. Move a staged object into the marked zone; show the detected object, estimate, rule and source, warning, shutdown attempt, and independent confirmation. Include an uncertainty or failure case and finish with measured results and a concise look at the code created during the event.
+Show the physical scene alongside the interface. Move a staged object into the marked zone; show the detected object, estimate, rule and source, warning, OFF request, and reported plug status. Include an uncertainty or failure case and finish with measured results and a concise look at the code created during the event.
 
 ## Hackathon overview
 
@@ -197,7 +198,7 @@ Dates may change. Check the [official event page](https://dev.meta.ai/events/glo
 - [ ] Use only code, data, and assets the team has rights to; comply with legal, ethical, and platform policies. Review the official rules and eligibility requirements.
 - [ ] Verify the submission and all links before **November 4 at 9:00 p.m. Eastern**.
 
-The guide warns that failure to clearly identify original hackathon contributions can result in disqualification. It lists basic RAG applications and simple image analyzers among generic examples to avoid. Three Feet's intended distinction is its integrated physical decision and verification loop, supported by measured results.
+The guide warns that failure to clearly identify original hackathon contributions can result in disqualification. It lists basic RAG applications and simple image analyzers among generic examples to avoid. Three Feet's intended distinction is its integrated physical perception and control loop, supported by measured results.
 
 ## Judging rubric
 

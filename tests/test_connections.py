@@ -225,14 +225,14 @@ def test_new_cync_sign_in_forces_a_fresh_connection(rig):
     assert len(plugs) == 2 and engine.switch is not first and first.closed
 
 
-@pytest.mark.parametrize("state", [State.VERIFYING, State.OFF_UNCONFIRMED])
-def test_plug_cannot_change_while_a_shutoff_is_being_verified(rig, state):
+def test_plug_cannot_change_while_an_off_command_is_pending(rig):
     engine, service, _, _, _, plug = rig
-    engine.sm.state = state
+    engine._off_pending = 1
     with pytest.raises(ConnectionChangeBlocked):
-        service.apply_plug("dryrun")
+        service.apply_plug('dryrun')
     assert engine.switch is plug
     assert service.store.load()[1] is None
+
 
 
 def test_simulated_scene_cannot_be_edited(rig):

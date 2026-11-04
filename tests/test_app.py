@@ -41,7 +41,7 @@ def wait_for(client, predicate, timeout=5.0):
 
 def test_state_shape_and_config(client):
     s = client.get("/api/state").json()
-    for key in ("state", "banner", "objects", "rule", "power", "signals", "camera", "calibration", "api",
+    for key in ("state", "banner", "objects", "rule", "power", "off_pending", "off_error", "camera", "calibration", "api",
                 "reset_pending", "reset_cancelled"):
         assert key in s
     cfg = client.get("/api/config").json()
@@ -123,8 +123,8 @@ def latch_simulated_plug_off(client):
     engine.switch.settle_s = 0
     engine.switch.turn_off()
     engine.plug.refresh()
-    engine.sm.state = State.OFF_CONFIRMED
-    wait_for(client, lambda s: s["state"] == "OFF_CONFIRMED" and s["can_reset"])
+    engine.sm.state = State.OFF_REQUESTED
+    wait_for(client, lambda s: s["state"] == "OFF_REQUESTED" and s["can_reset"])
     return engine
 
 
@@ -150,9 +150,9 @@ def test_reset_on_failure_returns_error_and_keeps_heater_latched_off(client, mon
     response = client.post("/api/reset")
     assert response.status_code == 502
     assert "detail" in response.json()
-    assert engine.sm.state in (State.VERIFYING, State.OFF_CONFIRMED)
+    assert engine.sm.state is State.OFF_REQUESTED
     assert engine.switch.status().on is False
-    wait_for(client, lambda s: s["state"] == "OFF_CONFIRMED")
+    wait_for(client, lambda s: s["state"] == "OFF_REQUESTED")
 
 
 def test_reset_refuses_missing_calibration_after_shutoff(client):

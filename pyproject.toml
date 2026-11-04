@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "three-feet"
 version = "0.1.0"
-description = "Space-heater clearance helper: phone camera + Meta SAM 3.1 / Muse Spark / Muse Wonder + verified smart-plug shutoff."
+description = "Space-heater clearance helper: phone camera + Meta SAM 3.1 / Muse Spark / Muse Wonder + smart-plug OFF requests."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"

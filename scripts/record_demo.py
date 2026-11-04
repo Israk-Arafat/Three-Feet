@@ -2,7 +2,7 @@
 
     python scripts/record_demo.py                 # writes web/demo-data/
 
-Runs the real engine (geometry, state machine, plug, verification, incident report) against the simulated scene on a
+Runs the real engine (geometry, state machine, plug, incident report) against the simulated scene on a
 fake clock, so the recording is fast and repeatable. The dashboard replays it in `npm run build:demo`: state messages,
 events, incidents, and the annotated camera frames. Nothing here touches a camera, a plug, or the network.
 """
@@ -67,7 +67,7 @@ class Recorder:
         calib = self.world.calibration()
         self.engine = Engine(
             SimSource(self.world), SimPerception(self.world), plug, Settings(_env_file=None), calib=calib,
-            rule=ClearanceRule(36, 36, 36, 36, "default"), probe=self.world.indicator_probe(calib), mode="sim",
+            rule=ClearanceRule(36, 36, 36, 36, "default"), mode="sim",
             clock=self.clock, events_dir=None)
         self.engine._workers.shutdown()
         self.engine._workers = SyncExecutor()

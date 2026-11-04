@@ -132,7 +132,7 @@ def build_engine(source_spec: str, plug_kind: str, demo: bool,
         world = SimWorld(plug)
         calib = world.calibration()
         engine = Engine(SimSource(world), SimPerception(world), plug, s, calib=calib, rule=rule,
-                        probe=world.indicator_probe(calib), wonder=wonder, meter=meter, mode="sim",
+                        wonder=wonder, meter=meter, mode="sim",
                         demo=demo, source_label="simulated scene")
         engine.sim_world = world  # type: ignore[attr-defined]
         autoplay = Autoplay(world, lambda: engine.sm.state.value, engine.reset,
@@ -142,7 +142,6 @@ def build_engine(source_spec: str, plug_kind: str, demo: bool,
     from .perception.pipeline import MetaPerception
     from .perception.sam import SamClient
     from .perception.spark import SparkClient
-    from .safety.verifier import IndicatorProbe
 
     path = Path(source_spec)
     saved_camera, saved_plug = startup_connections(source_spec, plug_kind, plug_explicit)
@@ -168,14 +167,14 @@ def build_engine(source_spec: str, plug_kind: str, demo: bool,
     if switch is None:
         switch = make_switch(plug_kind, s.plug_name)
     calib = CalibrationFile.load() if CALIBRATION_PATH.exists() else None
-    probe = (IndicatorProbe(calib.indicator_roi, calib.indicator_threshold)
-             if calib and calib.indicator_roi and calib.indicator_threshold is not None else None)
     perception = (MetaPerception(SamClient(client, meter), SparkClient(client, meter), meter,
-                                idle_refresh_s=min(s.perception_idle_refresh_s, s.perception_max_age_s / 2),
-                                max_result_age_s=s.perception_max_age_s)
+                                idle_refresh_s=s.perception_idle_refresh_s,
+                                max_result_age_s=s.perception_max_age_s,
+                                verification_max_age_s=s.perception_verification_max_age_s,
+                                inventory_period_s=s.perception_inventory_refresh_s)
                   if client else NullPerception())
     engine = Engine(source, perception, switch, s, calib=calib, rule=rule,
-                    probe=probe, wonder=wonder, meter=meter, mode="replay" if path.is_dir() else "live",
+                    wonder=wonder, meter=meter, mode="replay" if path.is_dir() else "live",
                     demo=demo, source_label=source_label)
     for note in notes:
         engine.log("setup", note)
