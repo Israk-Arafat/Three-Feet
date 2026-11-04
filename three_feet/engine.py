@@ -426,7 +426,7 @@ class Engine:
                 mo = next((x for x in self._measured if x.obj.track_id == worst.track_id), None)
                 detail = ""
                 if mo:
-                    where = (f"{mo.m.distance_in:.1f} ± {mo.m.err_in:.1f} in from {mo.m.side}, at the zone edge"
+                    where = (f"{mo.m.distance_in:.1f} in from {mo.m.side}, at the zone edge"
                              if mo.m.distance_in >= mo.m.required_in else f"{mo.m.distance_in:.1f} in from {mo.m.side}")
                     detail = f" — {where} (needs {mo.m.required_in:.0f} in)"
                 self.log("warn", f"{worst.label.capitalize()} inside clearance zone{detail}",
@@ -515,7 +515,7 @@ class Engine:
         shutoff = next((e for e in inc.events if e["kind"] == "shutoff"), None)
         closest = (shutoff or {}).get("data", {}).get("closest")
         if closest:
-            what = (f"a {closest['label']} came within {closest['distance_in']:.1f} ± {closest['err_in']:.1f} in of "
+            what = (f"a {closest['label']} came within {closest['distance_in']:.1f} in of "
                     f"the heater's {closest['side']}, where the rule requires {closest['required_in']:.0f} in")
         else:
             what = inc.reason
@@ -618,18 +618,83 @@ class Engine:
 
     # -- rendering + UI state ---------------------------------------------------------------------
     def _render(self, frame, d: Decision, camera_ok: bool, art) -> None:
-        if frame is None:
+        # One immutable bundle per tick keeps each viewer's overlays consistent without touching
+        # detection, calibration, or safety state. Readers can retain the old bundle while a new
+        # frame is published.
+        measured = tuple((mo.obj.mask, mo.obj.label, mo.obj.source, mo.m, mo.status) for mo in self._measured)
+        snapshot = (frame.image if frame is not None else None, d, camera_ok, art, measured)
+        self._view_snapshot = snapshot
+        self._view_cache = {}
+        self.latest_jpeg = self._compose_view(snapshot, zone=True, base=True, objects=True)
+
+    def render_view(self, *, zone: bool = True, base: bool = True, objects: bool = True) -> bytes | None:
+        """Render a viewer's chosen layers; visibility never changes safety observations."""
+        if zone and base and objects:
+            return self.latest_jpeg
+        snapshot = getattr(self, "_view_snapshot", None)
+        if snapshot is None:
+            return None
+        key = (zone, base, objects)
+        cached = getattr(self, "_view_cache", {}).get(key)
+        if cached is not None and cached[0] is snapshot:
+            return cached[1]
+        jpg = self._compose_view(snapshot, zone=zone, base=base, objects=objects)
+        self._view_cache[key] = (snapshot, jpg)
+        return jpg
+
+    def view_geometry(self) -> dict:
+        """Camera-space footprint for optional browser zoom, without refitting geometry."""
+        with self._geom_lock:
+            cmap = self.cmap
+        image_size = ([self.latest_raw.shape[1], self.latest_raw.shape[0]]
+                      if self.latest_raw is not None else None)
+        result = {"configured": False, "image_size": image_size, "base_corners_px": None,
+                  "base_width_in": None, "base_depth_in": None}
+        if cmap is None:
+            return result
+        corners = cmap.calib.floor_to_image(cmap.heater.corners())
+        if not np.isfinite(corners).all():
+            return result
+        return {"configured": True, "image_size": list(cmap.calib.image_size),
+                "base_corners_px": corners.tolist(), "base_width_in": cmap.heater.width_in,
+                "base_depth_in": cmap.heater.depth_in}
+
+    def _compose_view(self, snapshot, *, zone: bool, base: bool, objects: bool) -> bytes | None:
+        image, d, camera_ok, art, measured = snapshot
+        if image is None:
             canvas = np.full((720, 1280, 3), 30, np.uint8)
         else:
-            canvas = frame.image.copy()
+            canvas = image.copy()
         if art is not None:
             watch_c, zone_c, heater_poly = art
-            cv2.drawContours(canvas, watch_c, -1, STATUS_BGR["watch"], 2, cv2.LINE_AA)
-            cv2.drawContours(canvas, zone_c, -1, STATUS_BGR["violation"], 3, cv2.LINE_AA)
-            cv2.polylines(canvas, [heater_poly], True, PAPER_BGR, 2, cv2.LINE_AA)
-        for mo in self._measured:
-            label = mo.obj.label + ("" if mo.obj.source != "catchall" else " (catch-all)")
-            draw_measured(canvas, mo.obj.mask, label, mo.m, mo.status)  # type: ignore[arg-type]
+            if zone:
+                tint = canvas.copy()
+                cv2.drawContours(tint, zone_c, -1, STATUS_BGR["violation"], cv2.FILLED)
+                canvas = cv2.addWeighted(canvas, 0.88, tint, 0.12, 0)
+                cv2.drawContours(canvas, zone_c, -1, STATUS_BGR["violation"], 3, cv2.LINE_AA)
+            if base:
+                base_color = (228, 205, 75)  # cyan, kept distinct from the red danger zone
+                cv2.polylines(canvas, [heater_poly], True, PAPER_BGR, 6, cv2.LINE_AA)
+                cv2.polylines(canvas, [heater_poly], True, base_color, 3, cv2.LINE_AA)
+                points = heater_poly.reshape(-1, 2)
+                for name, point in zip(("FL", "FR", "BR", "BL"), points):
+                    xy = tuple(int(v) for v in point)
+                    cv2.circle(canvas, xy, 5, PAPER_BGR, -1, cv2.LINE_AA)
+                    put_label(canvas, name, (xy[0] + 7, xy[1] - 8), scale=0.4)
+                if len(points) == 4:
+                    front = (points[0] + points[1]) / 2
+                    center = points.mean(axis=0)
+                    direction = front - center
+                    norm = np.linalg.norm(direction)
+                    if norm > 0:
+                        end = front + direction / norm * 24
+                        cv2.arrowedLine(canvas, tuple(front.astype(int)), tuple(end.astype(int)),
+                                        base_color, 3, cv2.LINE_AA, tipLength=0.35)
+                        put_label(canvas, "Front", tuple(end.astype(int)), scale=0.4)
+        if objects:
+            for mask, label, source, measurement, status in measured:
+                label = label + ("" if source != "catchall" else " (catch-all)")
+                draw_measured(canvas, mask, label, measurement, status)
         if not camera_ok:
             canvas = (canvas * 0.35).astype(np.uint8)
             put_label(canvas, "No camera feed: status unknown", (40, canvas.shape[0] // 2), PAPER_BGR, 1.2,
@@ -639,15 +704,13 @@ class Engine:
         (tw, _), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
         put_label(canvas, text, (canvas.shape[1] - tw - 20, 34), scale=0.7)
         ok, buf = cv2.imencode(".jpg", canvas, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        if ok:
-            self.latest_jpeg = buf.tobytes()
+        return buf.tobytes() if ok else None
 
     def _message(self, d: Decision, camera_ok: bool, power_w: float | None, status: PlugStatus) -> dict:
         times = list(self._frame_times)
         fps = (len(times) - 1) / (times[-1] - times[0]) if len(times) > 1 and times[-1] > times[0] else 0.0
         objects = sorted(self._measured, key=lambda mo: mo.m.slack_in - mo.m.err_in)
         rule = self.rule
-        zone_clear = all(mo.status != "violation" for mo in self._measured)
         return {
             "type": "state",
             "t": d.t,

@@ -10,6 +10,10 @@ const PATHS = {
   bell: "M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16zM10 20.5h4",
   bellOff: "M6 16V11a6 6 0 0 1 9.4-4.9M18 11v5l1.5 2H8.5M10 20.5h4M4 4l16 16",
   upload: "M12 16V4M7 9l5-5 5 5M5 20h14",
+  settings: "M4 7h16M4 17h16M8 4v6M16 14v6",
+  zone: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5M8 8h8v8H8z",
+  base: "M4 8l8-4 8 4v8l-8 4-8-4V8zM4 8l8 4 8-4M12 12v8",
+  eye: "M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6zM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
 } as const;
 
 export type IconName = keyof typeof PATHS;

@@ -1,4 +1,4 @@
-import type { AppConfig, Incident, RuleDraft } from "../types";
+import type { AppConfig, Incident, RuleDraft, SetupState, ViewGeometry } from "../types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init);
@@ -23,6 +23,12 @@ const post = <T>(path: string, body?: unknown) =>
   });
 
 export const api = {
+  setup: () => request<SetupState>("/api/setup"),
+  viewGeometry: () => request<ViewGeometry>("/api/view/geometry"),
+  saveSetupDimensions: (body: {width_in:number;depth_in:number}) => post<SetupState>("/api/setup/dimensions", body),
+  findHeaterBase: (body: {width_in:number;depth_in:number}) => post<SetupState>("/api/setup/auto", body),
+  captureSetup: (body: {width_in:number;depth_in:number}) => post<SetupState>("/api/setup/capture", body),
+  saveManualSetup: (body: {width_in:number;depth_in:number;job_id:string;corners_px:number[][]}) => post<SetupState>("/api/setup/manual", body),
   config: () => request<AppConfig>("/api/config"),
   incidents: () => request<Incident[]>("/api/incidents"),
   reset: () => post<{ ok: boolean }>("/api/reset"),

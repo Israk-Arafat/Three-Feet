@@ -5,6 +5,7 @@ import "@fontsource/chivo-mono/500.css";
 import "@fontsource/chivo-mono/800.css";
 import App from "./App";
 import "./index.css";
+import "./dashboard.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

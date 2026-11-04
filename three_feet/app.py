@@ -194,11 +194,13 @@ def create_app() -> FastAPI:
         return Response(buf.tobytes(), media_type="image/jpeg")
 
     @app.get("/stream.mjpg")
-    async def stream() -> StreamingResponse:
+    async def stream(zone: bool = True, base: bool = True, objects: bool = True) -> StreamingResponse:
         async def frames():
             last = None
             while True:
-                jpg = eng().latest_jpeg
+                # Layer preferences belong to this connection, never the shared safety engine.
+                jpg = (eng().latest_jpeg if zone and base and objects else
+                       await asyncio.to_thread(eng().render_view, zone=zone, base=base, objects=objects))
                 if jpg is not None and jpg is not last:
                     last = jpg
                     yield (b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
@@ -207,6 +209,10 @@ def create_app() -> FastAPI:
 
         return StreamingResponse(frames(), media_type="multipart/x-mixed-replace; boundary=frame",
                                  headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/view/geometry")
+    def view_geometry() -> dict:
+        return eng().view_geometry()
 
     @app.websocket("/ws")
     async def ws(socket: WebSocket) -> None:

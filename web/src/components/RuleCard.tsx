@@ -117,7 +117,7 @@ function RuleDialog({ onClose }: { onClose: () => void }) {
               {ex.found ? (
                 <>
                   Found in {fileName}
-                  {ex.page ? `, page ${ex.page}` : ""}, {Math.round(ex.confidence * 100)}% confident
+                  {ex.page ? `, page ${ex.page}` : ""}
                   {ex.heater_model ? `. Heater: ${ex.heater_model}.` : "."}
                 </>
               ) : (

@@ -94,7 +94,7 @@ export function useAlerts(state: StateMessage | null, stale: boolean) {
     if (!state) return;
     const p = prev.current;
     const cur = state.state;
-    const newFlags = state.degraded.filter((f) => !p.degraded.includes(f) && f !== "API_DOWN");
+    const newFlags = state.degraded.filter((f) => !p.degraded.includes(f));
     prev.current = { state: cur, degraded: state.degraded, stale };
     if (!enabled || p.state === null) return;
 

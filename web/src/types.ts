@@ -1,4 +1,14 @@
 // Mirrors the backend's Engine._message() and event log (three_feet/engine.py).
+export interface ViewGeometry {
+  configured: boolean; image_size: [number,number] | null; base_corners_px: number[][] | null;
+  base_width_in: number | null; base_depth_in: number | null;
+}
+export interface SetupState {
+  width_in: number; depth_in: number; status: "idle"|"running"|"needs_review"|"ready"|"error";
+  message: string; job_id: string|null; image_url: string|null; overlay_url: string|null;
+  corners_px: number[][]|null; image_size: [number,number]|null;
+  quality: {confidence?:number;error_pct?:number}|null; calibrated:boolean; method:string|null;
+}
 
 export type SafetyState =
   | "CLEAR"
@@ -57,6 +67,8 @@ export interface StateMessage {
   countdown_s: number | null;
   degraded: DegradedFlag[];
   can_reset: boolean;
+  reset_pending: boolean;
+  reset_cancelled: boolean;
   objects: ZoneObjectInfo[];
   rule: Rule;
   power: { reachable: boolean; on: boolean | null; watts: number | null; metering: boolean; history: number[]; plug: string };

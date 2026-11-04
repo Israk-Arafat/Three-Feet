@@ -19,7 +19,11 @@ export function ObjectsCard({ state, className = "" }: { state: StateMessage | n
     <Panel title="Closest object" note={note} className={className}>
       {!worst ? (
         <p className="py-2 text-lg text-muted">
-          {state?.camera.healthy === false ? "Can’t see the zone. Status unknown." : "Nothing near the heater."}
+          {!state ? "Waiting for a fresh camera observation."
+            : !state.calibration.configured ? "Map the heater base to start measuring nearby objects."
+            : !state.camera.healthy ? "Can’t see the zone. Status unknown."
+            : !state.api.ok ? "Object detection is unavailable. Status unknown."
+            : "No objects detected near the heater."}
         </p>
       ) : (
         <div className="space-y-3">
@@ -32,7 +36,6 @@ export function ObjectsCard({ state, className = "" }: { state: StateMessage | n
               <span className="figure num text-5xl leading-none">{worst.distance_in.toFixed(1)}</span>
               <span className="text-lg">in</span>
             </div>
-            <div className="num mt-1 text-sm">Error ± {worst.err_in.toFixed(1)} in</div>
           </div>
           <p className="text-base">
             From the {worst.side}. The rule needs <b className="font-extrabold">{worst.required_in.toFixed(0)} in</b>.

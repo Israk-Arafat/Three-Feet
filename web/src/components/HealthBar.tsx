@@ -14,7 +14,7 @@ function Cell({ ok, label, value }: { ok: boolean | null; label: string; value: 
   );
 }
 
-export function HealthBar({ state, connected }: { state: StateMessage | null; connected: boolean }) {
+export function HealthBar({ state, connected, onSetup }: { state: StateMessage | null; connected: boolean; onSetup?: () => void }) {
   const [refMsg, setRefMsg] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
   if (!state) {
@@ -30,7 +30,7 @@ export function HealthBar({ state, connected }: { state: StateMessage | null; co
     ? [
         `${camera.fps.toFixed(1)} fps`,
         camera.battery_pct !== null ? `battery ${Math.round(camera.battery_pct)}%` : null,
-        camera.wifi_dbm !== null ? `${Math.round(camera.wifi_dbm)} dBm` : null,
+        camera.wifi_dbm !== null && camera.wifi_dbm < 0 ? `${Math.round(camera.wifi_dbm)} dBm` : null,
       ]
         .filter(Boolean)
         .join(", ")
@@ -38,7 +38,7 @@ export function HealthBar({ state, connected }: { state: StateMessage | null; co
   const calValue = !cal.configured
     ? "not calibrated"
     : cal.method === "heater"
-    ? `quick setup, ±${cal.distance_err_pct ?? "?"}% of distance`
+    ? "heater base"
     : `error ${cal.rms_in?.toFixed(2) ?? "?"} in, ${cal.drift_px !== null ? `drift ${cal.drift_px.toFixed(1)} px` : "markers hidden"}`;
   const apiValue = state.mode === "sim" ? "simulated" : a.ok ? `SAM ${a.sam_latency_s?.toFixed(2) ?? "?"} s` : "unavailable";
 
@@ -59,6 +59,7 @@ export function HealthBar({ state, connected }: { state: StateMessage | null; co
       <Cell ok={connected} label="Server" value={connected ? "connected" : "offline"} />
       <Cell ok={camera.healthy} label="Camera" value={cameraValue} />
       <Cell ok={cal.configured && !state.degraded.includes("CALIBRATION_DRIFT")} label="Calibration" value={calValue} />
+      {onSetup && <div><button type="button" className="btn btn--sm" onClick={onSetup}>{cal.configured ? "Edit heater base" : "Set up base"}</button></div>}
       <Cell ok={state.mode === "sim" ? null : a.ok} label="Meta API" value={apiValue} />
       <Cell
         ok={spend.last_hour_usd < spend.budget_usd_per_hour}
@@ -71,8 +72,8 @@ export function HealthBar({ state, connected }: { state: StateMessage | null; co
           <span className="text-muted">Catch-all</span>
           <span className="font-medium">{cal.reference_set ? "armed" : "needs an empty-zone photo"}</span>
           {!cal.reference_set && (
-            <button type="button" className="btn btn--sm" onClick={setReference} disabled={capturing} aria-busy={capturing}>
-              Capture
+            <button type="button" className="btn btn--sm" onClick={setReference} disabled={capturing || !connected || !camera.healthy || state.degraded.includes("CALIBRATION_DRIFT")} aria-busy={capturing} title="Clear all objects from the danger zone before capturing its reference photo">
+              Capture empty zone
             </button>
           )}
           {refMsg && <span className="text-xs text-muted">{refMsg}</span>}
