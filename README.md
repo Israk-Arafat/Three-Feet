@@ -1,229 +1,66 @@
 # Three Feet
 
-An experimental space-heater safety helper for the **Meta Global AI Developer Hackathon**. Three Feet aims to detect objects in a heater's clearance zone, explain the concern, send an OFF request to the plug, and show the command outcome and reported plug state.
+AI-powered clearance monitoring for space heaters. Three Feet detects nearby objects, measures their distance, and sends a power-off request when an identified hazard remains inside the configured zone.
 
-![Simulator dashboard showing distance uncertainty and an OFF request](docs/dashboard-simulator.jpg)
+![Three Feet dashboard — simulated scene](docs/dashboard-simulator.jpg)
 
-*Synthetic simulator scene; this screenshot is not a physical validation trial.*
+## Features
 
-**Implemented system:** One fixed Android phone camera, a reviewed floor-plane calibration, Meta SAM 3.1 and Muse Spark perception, a deterministic safety loop, and a GE Cync smart plug. Cync reports relay state; it has **no power meter**. The dashboard displays its reported state separately from OFF command outcomes.
+- **Measured clearance:** camera calibration, distances in inches, and adjustable rules for each side of the heater.
+- **AI perception:** SAM 3.1 segments objects; Muse Spark identifies scene contents and assesses hazards. Local tracking follows objects between model checks.
+- **Automatic power control:** configurable countdowns, plug status, command retries, and guarded manual reset. Unclassified movement waits for SAM; recognized people and worn clothing do not start object-shutoff countdowns.
+- **Source-backed rules and reports:** Muse Wonder reads heater manuals for human review and summarizes incidents using the triggering object's evidence.
 
-```mermaid
-flowchart LR
-  Camera[Fixed phone camera] --> Geometry[Floor calibration and clearance geometry]
-  Camera --> Models[SAM 3.1 and Muse Spark]
-  Models --> Geometry
-  Geometry --> Safety[Deterministic safety loop]
-  Safety --> Plug[Cync plug OFF request]
-  Plug --> Dashboard[Live dashboard and command outcome]
-  Manual[Manual PDF] --> Wonder[Muse Wonder plus human review]
-  Wonder --> Safety
-```
+## Quickstart
 
-The dashboard shows estimated distances with uncertainty, clearance provenance, shutdown countdowns, plug status, and incident reports. The simulator exercises the same geometry, safety loop, plug requests, and UI with synthetic observations. Run it without hardware using the dashboard quickstart below.
-
-**Validation:** No physical accuracy or reliability results are claimed here. Record trials and generate a report using [VALIDATION.md](./VALIDATION.md). A demo video and physical measurements must be supplied before presenting the project as empirically validated.
-
-**Build history:** [PLAN.md](./PLAN.md) and [FRONTEND_PLAN.md](./FRONTEND_PLAN.md) document the original design; proposals there may differ from the implemented system described here.
-
-**Status:** Research prototype. Implemented during the hackathon:
-- the Python core: frame sources, Meta API clients, floor-plane geometry, the safety state machine, and plug control
-- the live engine and FastAPI server
-- a React dashboard, with a simulator for demos without hardware
-
-It has unit and end-to-end tests but has **not yet been validated** against real measurements or real shutoffs. This is a research prototype, not a fire-safety device; do not rely on it to prevent fires or replace manufacturer instructions, smoke alarms, or safe heater practices.
-
-### Monitoring and power commands
-
-- After the countdown, the app sends OFF and shows **Power off requested**. Requests stay latched until a guarded manual reset. Only failed command calls are retried (`OFF_COMMAND_RETRIES`, default 2); the plug state is displayed separately.
-
-- Measurement uncertainty is an engineering estimate, not a statistical confidence interval. The red zone uses the nominal object measurement. Only overlap with the red zone starts the shutoff countdown. A fixed 2-inch outside watch band is amber; uncertainty never expands that band.
-- SAM initializes object masks, then local optical flow tracks their positions between API checks. New scene content, lost tracking, or a camera gap triggers an early SAM check; otherwise SAM checks every 30 seconds (`PERCEPTION_IDLE_REFRESH_S`). Spark inventories the scene at most once per 60 seconds (`PERCEPTION_INVENTORY_REFRESH_S`); per-object hazard judgments are retained with track identities.
-- Camera/local tracking results expire after 5 seconds (`PERCEPTION_MAX_AGE_S`). SAM verification has a separate 45-second deadline (`PERCEPTION_VERIFICATION_MAX_AGE_S`). Unknown scene changes and failed checks mark monitoring degraded until a successful SAM check; local frames cannot renew the SAM deadline. Slow calls retain their input frame's timestamp. Budget exhaustion pauses model calls and marks monitoring degraded; local catch-all detection still runs. Reset is refused while model health is degraded.
-- At six concepts per check and $0.0025 per SAM image, an unchanged scene uses about $1.80/hour for SAM before token-priced calls, versus about $27/hour at the former two-second interval. Movement that local tracking cannot explain increases API use. These are scheduling estimates, not measured physical tracking accuracy or a billing guarantee.
-- `DEFAULT_CLEARANCE_IN` is the active fallback and suggestion floor, not a guarantee of the manufacturer's requirement. Approved user distances remain explicitly labeled as custom, including warnings below the active default. Finding a manual requires human review before its values take effect.
-- Dashboard and report times use `DISPLAY_TIMEZONE` (default `America/New_York`) with timezone labels or UTC offsets.
-- Backend tests isolate settings and saved rules from your local `.env`. Run `python -m pytest`; frontend validation is `npm run build` in `web/`.
-
-## Quickstart (development)
-
-Requires Python 3.11+ (developed on 3.15) on Windows.
-
+Requires Python 3.11+, Node.js, and npm. From the repository root, in PowerShell:
 
 ```powershell
-$env:PYYAML_FORCE_LIBYAML = "0"
-py -3.15 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-Remove-Item Env:\PYYAML_FORCE_LIBYAML
-Copy-Item .env.example .env      # then add MODEL_API_KEY and the phone camera URL
-.\.venv\Scripts\python.exe -m pytest
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+Copy-Item .env.example .env
+npm --prefix web ci
+npm --prefix web run build
+python -m three_feet.app --source sim --plug dryrun
 ```
 
-| Step | Command |
-| --- | --- |
-| Check the API key and models | `.\.venv\Scripts\python.exe scripts\smoke_api.py` |
-| View the phone camera (press S to save snapshots to `data/photos/`) | `.\.venv\Scripts\python.exe scripts\view_stream.py --source phone` |
-| Automatic quick setup: supply measured base width/depth; Muse Spark selects the floor-contact corners | `.\.venv\Scripts\python.exe scripts\calibrate_auto.py --source phone --heater 4.5 4.35` |
-| Quick setup: no printing, just measure the heater's base (width, depth in inches) and click its 4 corners | `.\.venv\Scripts\python.exe scripts\calibrate.py --source phone --heater 14 9` |
-| Or print ArUco markers for tighter error bars (writes `data\markers\aruco_markers.pdf`; print at Actual size) | `.\.venv\Scripts\python.exe tools\print_markers.py` |
-| Calibrate with the markers and mark the heater | `.\.venv\Scripts\python.exe scripts\calibrate.py --image data\photos\setup.jpg --layout data\markers_layout.example.json` |
-| Extract the clearance rule from a manual | `.\.venv\Scripts\python.exe scripts\extract_rules.py data\manuals\heater.pdf` |
-| Or find the manual on the web from the heater's name | `.\.venv\Scripts\python.exe scripts\extract_rules.py --find "Lasko 754200"` |
-| Run SAM 3.1 on photos, with distances if calibrated | `.\.venv\Scripts\python.exe scripts\sam_photos.py data\photos --spark` |
+Open [localhost:8000](http://127.0.0.1:8000/). The simulator runs without a camera, physical plug, or API key.
 
-Phone camera: the [Android IP Camera](https://github.com/DigitallyRefined/android-ip-camera) app. Set `CAMERA_URL=https://PHONE_IP:4444/video/mjpeg` and the app's username and password in `.env`.
+On macOS/Linux, activate with `source .venv/bin/activate` and copy the settings with `cp .env.example .env`.
 
-Use your measured dimensions for `--heater`. Automatic setup inspects the full frame and, when needed, a focused crop. It saves a diagnostic image and explanation under `runs/setup/` and leaves calibration unchanged when floor-contact corners are hidden, confidence is low, or the geometry is unreliable. It does not use the tall heater body as a floor reference.
+## Live monitoring
 
-### Smart plug
+1. Set `MODEL_API_KEY` in `.env`, install the optional dependencies required by your plug driver, and run `python -m three_feet.app`.
+2. Open **Camera and plug** to connect a camera and select a supported power adapter.
+3. Use **Heater setup** to measure the base and review its floor-contact corners. Keep the camera fixed after calibration.
+4. Review **Clearance rule**, then enable alerts. Find or upload the heater's manual to review its required distances.
 
-Three Feet controls a **GE Cync Indoor Plug** (`PLUG_KIND=cync`, `PLUG_NAME=<name in the Cync app>`). The plug has no power meter and reports only its relay state. `PLUG_KIND=dryrun` is a simulated plug for the simulator and tests.
+Camera inputs include USB webcams, HTTP(S) MJPEG streams, video files, and photo folders. Power control uses the [PowerSwitch interface](three_feet/safety/actuator.py); device support depends on the installed driver, with a simulated adapter included for testing.
 
-To set up the Cync plug:
-1. Install the extra: `.\.venv\Scripts\python.exe -m pip install -e ".[cync]"`.
-2. Close the Cync phone app (Cync allows one connection per account), then log in once: `.\.venv\Scripts\python.exe scripts\cync_login.py`. It asks for the emailed code, saves tokens (never the password) to the git-ignored `data/cync_token.json`, and lists your device names.
-3. With a lamp plugged in, check it: `.\.venv\Scripts\python.exe scripts\plug_test.py --off`.
-4. To restore the test lamp from the CLI: `.\.venv\Scripts\python.exe scripts\plug_test.py --on`. Use `--on` only with a lamp; it energizes the connected device. In the dashboard, **Reset and turn on** restores plug power and resumes monitoring after a shutoff, only with a fresh camera view, valid calibration, available API, reachable plug, and clear zone. Power is never restored automatically when an object leaves. A failed ON request is not retried; the engine requests OFF and retries failed OFF commands.
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `DEFAULT_CLEARANCE_IN` | `15` | Fallback clearance on each side |
+| `WATCH_MARGIN_IN` | `2` | Amber band outside the red zone |
+| `DWELL_HIGH_S` | `10` | Delay for a high-hazard object inside the zone |
+| `BUDGET_USD_PER_HOUR` | `5` | Model-call budget threshold |
 
-The Cync driver uses the unofficial [pycync](https://github.com/Kinachi249/pycync) library through Cync's cloud.
+Only overlap with the red zone starts an object-shutoff countdown. The amber band does not expand with measurement uncertainty. After an OFF request, power is restored only through **Reset and turn on**, with fresh monitoring and a clear zone.
 
-### Changing the camera or plug from the dashboard
+Use the heater manufacturer's clearance requirements. Distance estimates depend on calibration; an OFF request records a command, not proof of physical shutdown.
 
-Click **Camera and plug** in the header instead of editing `.env` and restarting.
-
-- **Camera:** enter the stream address (or a webcam number such as `0`), optionally a username and password, then **Test camera** and **Use this camera**. The new camera is opened first and only replaces the old one once a picture arrives, so a wrong address changes nothing.
-- **Plug:** choose a GE Cync plug or the simulated test plug. For Cync you can sign in with your email, password and the emailed code, then pick the plug by name. The password is never stored, only the tokens in `data/cync_token.json`.
-- **Heater on:** if the heater is on (or its state is unknown) the panel warns you and the button reads "…anyway". It never blocks a camera change. A plug change is refused while a power command is pending.
-- **After a camera change** the detections and the empty-zone photo are cleared. Check that the danger zone still sits on the heater; redo **Heater setup** if the view moved.
-- Choices are saved to the git-ignored `data/connections.json` (it holds a camera password if you set one). Plain `python -m three_feet.app` starts live and uses them: with nothing saved it starts with "no camera" (and the plug from `PLUG_KIND` in `.env`, `dryrun` by default) until you add them here. Explicit flags win: `--source <address>` beats a saved camera (only `--source phone`, the default, uses it), and `--plug <kind>` beats a saved plug of a different kind. Otherwise the saved choice is used, then `.env`. The simulated scene (`--source sim`) has nothing to change.
-
-### Static demo (GitHub Pages)
-
-The repo publishes a **recorded demo** of the dashboard to GitHub Pages. It replays a simulated run (a blanket shutoff, a near miss, an unknown object) and cannot control a heater; the real app needs the Python server next to your camera and plug.
-
-- Once, in the repo settings, set **Pages → Source** to **GitHub Actions**. After that, `.github/workflows/pages.yml` rebuilds and deploys on every push to `main` that touches `web/`. The site is at `https://<user>.github.io/Three-Feet/`.
-- Build it locally: `cd web; npm run build:demo`, then serve `web/dist` (for example `python -m http.server --directory dist`). A normal `npm run build` replaces it with the real dashboard build.
-- Re-record the scenario after changing the engine, the simulator, or the UI text it shows: `python scripts/record_demo.py` (a few seconds, no hardware or key). It writes `web/demo-data/`, which is committed.
-
-### Dashboard
-
-Build the web UI once (Node 20+), then run the server. Open `http://127.0.0.1:8000`. Add `?demo=1` to show a **Fault tests** button in the header that opens the fault-injection panel.
+## Development
 
 ```powershell
-cd web; npm install; npm run build; cd ..
-.\.venv\Scripts\python.exe -m three_feet.app                                      # live; set the camera and plug in the dashboard
-.\.venv\Scripts\python.exe -m three_feet.app --source sim --demo     # simulated scene, no hardware or API key
-.\.venv\Scripts\python.exe -m three_feet.app --source phone --plug cync --demo     # live
-.\.venv\Scripts\python.exe -m three_feet.app --source data\photos --demo           # replay photos with real API calls
+python -m pytest
+npm --prefix web run build
+npm --prefix web run dev
 ```
 
-The simulator renders a synthetic overhead view with real ArUco markers, a heater whose power light follows a simulated plug, and scripted objects. Everything after the frame (calibration, geometry, safety state machine, plug requests, incident log, and UI) is the real code, and the UI labels the scene **SIMULATED**.
+The Vite development server proxies API, camera, and WebSocket traffic to the Python server. `npm --prefix web run build:demo` creates a static, recorded demo that cannot control hardware.
 
-For frontend development, keep the server running and use `npm run dev` in `web/` (http://localhost:5173). Vite proxies `/api`, `/ws`, and `/stream.mjpg` to port 8000.
+See [VALIDATION.md](VALIDATION.md) for recording physical trials and generating a results report.
 
-### Clearance rule
+## License
 
-The **Clearance rule** card sets the distance enforced on each side of the heater. Until a rule is approved, every side uses `DEFAULT_CLEARANCE_IN` (36 in).
-
-- **Find manual:** type the heater's brand and model. Muse Spark searches the web (`web_search`) for the owner's manual PDF. The server downloads it, accepting public http(s) addresses only and checking that it is really a PDF, and Muse Wonder reads the clearance distances with a quote and page. If a site blocks the download, Muse Spark reads the PDF from its URL on Meta's servers instead. If a document states no distance, the next link is tried. A lookup takes about 1–2 minutes and costs about $0.50. Downloaded manuals are kept in `data/manuals/`. You can also upload the PDF yourself.
-- **Edit:** type any distance from 1 to 240 in on each side, or set all sides at once. The suggested values from a manual are the stricter of the manual and the default. You can lower them, but the dashboard and event log warn when a side is below the default.
-
-Nothing is enforced until you approve it.
-
-The dashboard's visual design uses the Wayfind theme from [Hallmark](https://www.usehallmark.com) (installed for this project in `.agents/skills/hallmark`):
-- Chivo Mono throughout, self-hosted with `@fontsource`.
-- Square 2px ink borders.
-- Muted state colours.
-- Design tokens live in `web/src/tokens.css`.
-
-## The problem
-
-Objects such as blankets, curtains, and boxes can end up too close to a space heater. NFPA estimates that space heaters **and heating stoves together** accounted for approximately 30% of reported U.S. home heating equipment fires and 73% of associated civilian deaths in 2020–2024. [NFPA heating safety](https://www.nfpa.org/education-and-research/home-fire-safety/heating?l=515)
-
-## Original application idea
-
-> I want to build Three Feet, a safety helper for space heaters. Space heaters cause 29% of US home heating fires but 77% of the deaths, often because a blanket, curtain or box ends up too close.
->
-> Two cheap cameras watch the area around the heater. SAM 3.1 outlines the heater and nearby objects so the system can measure, in inches, how close each one is. Muse Spark judges what's flammable, and Muse Wonder reads the heater's manual for its required clearances and keeps watch through the evening. If something stays too close, an ESP32 turns the heater off with its own remote and logs the OFF request.
->
-> I'll test it with a tape measure and real shutoffs.
-
-The 29% and 77% figures are from NFPA's 2019–2023 estimate and include **heating stoves as well as space heaters**. See [NFPA's earlier release](https://www.nfpa.org/en/about-nfpa/press-room/news-releases/2025/us-home-heating-fires-peak-during-winter-months). Use the updated, correctly scoped figures above in the final pitch.
-
-## Proposed prototype
-
-The core demonstration is **perceive → reason → act**:
-
-1. Observe one fixed heater and its surroundings with a calibrated camera setup. Use SAM 3.1 to segment the heater and nearby objects.
-2. Estimate an object's distance or determine whether it enters a defined clearance zone. Segmentation alone does not measure real-world distance; camera calibration, geometry, and empirical testing are required. Two cameras are a proposed approach, not yet a proven solution.
-3. Use Muse Spark to help describe objects and explain potential hazards. Treat unknown objects conservatively; a model's material or flammability guess must not be the sole reason to dismiss a hazard.
-4. Use Muse Wonder to extract a clearance requirement from the heater's manual, with the source visible and a person reviewing the result. Use a reviewed rule for the demonstration rather than silently trusting uncertain extraction.
-5. When an object remains in the zone, issue a warning and send an OFF request through the smart plug. Log whether the command returned successfully or failed.
-6. Display uncertainty and failures, including loss of camera, API, or plug connectivity. Do not present missing observations as proof of safety.
-
-Start with one heater, a controlled camera position, and one complete working loop. Add complexity only after the basic loop is demonstrable. Use an unpowered heater or non-heating stand-in for close-object staging and demonstrate remote operation separately under supervision.
-
-### Validation plan
-
-- Compare distance estimates against tape measurements at multiple distances, especially around the clearance boundary; report errors and the conditions tested.
-- Test multiple object types, placements, lighting conditions, and occlusions. Record missed detections and false alarms, including uncertainty cases.
-- Count attempted, acknowledged, and failed OFF commands. Exercise camera and API disconnects and command failures.
-- Report the number of trials, setup, and limitations. Do not imply that a small demonstration establishes real-world safety or reliability.
-
-### Demo outline
-
-Show the physical scene alongside the interface. Move a staged object into the marked zone; show the detected object, estimate, rule and source, warning, OFF request, and reported plug status. Include an uncertainty or failure case and finish with measured results and a concise look at the code created during the event.
-
-## Hackathon overview
-
-- **Event:** Meta Global AI Developer Hackathon, hosted by Meta and Cerebral Valley; virtual and worldwide.
-- **Building period:** October 27–November 4, 2026, according to the participant guide. The kickoff was October 26.
-- **Submission deadline:** **November 4, 2026 at 9:00 p.m. Eastern Time**. The guide says late submissions will not be considered.
-- **Judging:** November 5–8 in the participant guide; the public event page lists November 4–8.
-- **Closing ceremony:** November 9 at 12:00 p.m. Eastern; top five per track, live final judging, winners, and community vote opening. The guide lists the community vote winner announcement for November 16.
-- **Track:** Indie developer (individual builders and students) or startup (teams and founders building a product). Select the applicable track when submitting.
-- **Themes:** Build for Your World or Push the Frontier. Three Feet is a proposed fit for Push the Frontier because it uses AI to understand and respond to a physical system.
-- **Meta models are required:** The guide says the project must incorporate Meta models. Stage one checks that it fits a theme and reasonably uses Meta Model API and/or Meta open-weight models during the hackathon.
-
-Dates may change. Check the [official event page](https://dev.meta.ai/events/global-hackathon), [Cerebral Valley event page](https://events.cerebralvalley.ai/e/meta-ai-developer-hackathon), participant guide, official rules, and Discord for updates. This README is a working summary, not a substitute for official rules.
-
-## Submission and project requirements
-
-- [ ] Build the work presented during the hackathon and clearly identify the new features, code, and functionality. The guide permits startups to build on existing products or codebases if new hackathon work is clearly identified.
-- [ ] Make the repository public and confirm it is accessible to judges.
-- [ ] Use Meta models and demonstrate a clear fit with a project theme.
-- [ ] Keep the team to at most four participants; solo participation is allowed. List everyone who worked on the project.
-- [ ] Appoint a representative if submitting as a team or startup; submit one project per team or startup through the Cerebral Valley platform.
-- [ ] Provide an accessible **three-minute demo video** highlighting the specific features, code, and functionality built during the event. The guide identifies the video, code, and live product as primary judging artifacts.
-- [ ] Use only code, data, and assets the team has rights to; comply with legal, ethical, and platform policies. Review the official rules and eligibility requirements.
-- [ ] Verify the submission and all links before **November 4 at 9:00 p.m. Eastern**.
-
-The guide warns that failure to clearly identify original hackathon contributions can result in disqualification. It lists basic RAG applications and simple image analyzers among generic examples to avoid. Three Feet's intended distinction is its integrated physical perception and control loop, supported by measured results.
-
-## Judging rubric
-
-After a pass/fail viability and Meta model use check, projects are scored from 0–10 in each category:
-
-| Category | Weight | Focus |
-| --- | ---: | --- |
-| Impact | 30% | Real-world potential, beneficiaries, usefulness, and theme fit. |
-| Use of Meta AI tooling | 25% | Creative use beyond a basic integration. |
-| Technical depth and execution | 20% | Sound, thoughtfully refined engineering. |
-| Demo | 25% | A working, impressive demonstration and video. |
-
-The top five projects per track advance to a final round using the same rubric. Some rubric text in the supplied PDF is horizontally clipped; consult the guide and official rules for complete wording.
-
-## Resources and logistics
-
-- The guide offers each accepted participant **$150 in Meta Model API credits**, claimed individually by November 4 at 9:00 p.m. Eastern. Credits are distributed in batches; check billing for application. A payment method is required to use them, and the guide notes a temporary preauthorization. A spend-limit notification can be configured in billing; verify actual billing controls and charges in the account.
-- Partner credits are subject to each provider's availability and selection. The guide lists Baseten, Modal, and Fireworks; see the official event page and participant guide for current eligibility and application links.
-- [Meta Model API documentation](https://dev.meta.ai/docs/overview) and [model list](https://dev.meta.ai/docs/models) provide current integration details.
-- The guide lists Discord channels including `#announcements`, `#questions`, `#office-hours`, and `#team-search`; check announcements for changes. Meta office hours are listed as 10–11 a.m. Eastern on weekdays during the building period. November 3 is listed as the last full day for submission questions and troubleshooting.
-- Total advertised prizes are $1 million across indie, startup, and bonus awards. See the participant guide and official rules for eligibility and award terms.
-
-## Source material
-
-- Participant guide: `C:/Users/nihal/Downloads/Details – Meta Global AI Developer Hackathon – Cerebral Valley.pdf` (local copy supplied for this project).
-- [Meta event overview](https://dev.meta.ai/events/global-hackathon)
-- [Cerebral Valley event details](https://events.cerebralvalley.ai/e/meta-ai-developer-hackathon)
-- [NFPA heating safety](https://www.nfpa.org/education-and-research/home-fire-safety/heating?l=515)
+[MIT](LICENSE)
