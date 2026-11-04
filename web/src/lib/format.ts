@@ -17,7 +17,7 @@ export const humanFlag = (flag: string) =>
   ({
     CAMERA_LOST: "camera feed lost",
     CALIBRATION_DRIFT: "camera moved (calibration drift)",
-    API_DOWN: "Meta API unavailable",
+    API_DOWN: "object detection not ready",
     PLUG_UNREACHABLE: "smart plug unreachable",
   })[flag] ?? flag.toLowerCase().replace(/_/g, " ");
 

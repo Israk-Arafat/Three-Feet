@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
-import { clock } from "../lib/format";
+import { capitalize, clock } from "../lib/format";
 import type { EventItem, Incident } from "../types";
 
 function IncidentReportImpl({
@@ -44,6 +44,7 @@ function IncidentReportImpl({
           !openIncident && <p className="text-muted">No shutoffs yet. After each one, Muse Wonder writes up what happened.</p>
         ) : (
           <>
+            {incident.trigger && <h3 className="text-base">{capitalize(incident.trigger.label)}</h3>}
             <div className="flex items-center gap-3 text-sm">
               <span className="num text-muted">{clock(incident.started_t, timeZone)}</span>
               <span className={`tag ${incident.outcome === "failed" ? "tag--amber" : "tag--ink"}`}>

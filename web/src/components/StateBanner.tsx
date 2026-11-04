@@ -51,6 +51,8 @@ export function StateBanner({
     ? live.reset_cancelled ? "Cancelling power restoration" : "Turning heater on"
     : !state ? "Connecting to Three Feet"
     : needsSetup && tone === "unknown" ? "Set up your heater"
+    : worst?.status === "pending" && (tone === "unknown" || tone === "watch") ? "Waiting for SAM identification"
+    : worst?.is_person && tone === "watch" ? "Person detected"
     : tone === "watch" && worst?.status === "uncertain" ? "Outside zone, distance uncertain"
     : look.title;
 
@@ -66,10 +68,13 @@ export function StateBanner({
   } else if (tone === "unknown") {
     detail = needsSetup
       ? "Add the base dimensions to map its danger zone."
+      : worst?.status === "pending" ? `Movement detected; no shutoff countdown until SAM identifies it. ${live.api.health_reason ?? ""}`
       : live.api.health_reason ?? capitalize(live.degraded.map(humanFlag).join(", ")) + ".";
   } else if ((tone === "warn" || tone === "watch") && worst) {
     detail = `${capitalize(worst.label)}, ${measurement(worst.distance_in, worst.err_in)} from the ${worst.side}. Needs ${worst.required_in.toFixed(0)} in.`;
-    if (tone === "watch") detail += " Outside the red zone; no shutoff countdown.";
+    if (tone === "watch") detail += worst.is_person ? " Person detected; no object-shutoff countdown."
+      : worst.status === "pending" ? " Waiting for SAM; no shutoff countdown."
+      : " Outside the red zone; no shutoff countdown.";
   } else if (tone === "clear") {
     detail = worst
       ? `Closest: ${worst.label}, ${measurement(worst.distance_in, worst.err_in)} from the ${worst.side}.`

@@ -9,8 +9,10 @@ export function ObjectsCard({ state, className = "" }: { state: StateMessage | n
   const others = objects.slice(1, 4);
   const note = !worst
     ? undefined
-    : worst.source === "catchall"
-      ? "Catch-all, not recognized"
+    : worst.status === "pending"
+      ? "Waiting for SAM identification"
+      : worst.source === "catchall"
+      ? "Local change detector"
       : simulated
         ? "Simulated detection"
         : "SAM 3.1 and Muse Spark";
@@ -29,7 +31,7 @@ export function ObjectsCard({ state, className = "" }: { state: StateMessage | n
         <div className="space-y-3">
           <div className="flex items-baseline justify-between gap-3">
             <h3 className="truncate text-xl">{capitalize(worst.label)}</h3>
-            <StatusWord status={worst.status} />
+            {worst.is_person ? <span className="tag">Person</span> : <StatusWord status={worst.status} />}
           </div>
           <div className="plate px-4 py-3">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -38,7 +40,9 @@ export function ObjectsCard({ state, className = "" }: { state: StateMessage | n
             </div>
           </div>
           <p className={`text-sm ${worst.status === "uncertain" ? "text-state-warn" : "text-muted"}`}>
-            {worst.status === "violation" ? "The detected object overlaps the red zone."
+            {worst.is_person ? "Person or clothing being worn; no object-shutoff countdown."
+              : worst.status === "pending" ? "Movement detected. Waiting for SAM to identify it before starting a shutoff countdown."
+              : worst.status === "violation" ? "The detected object overlaps the red zone."
               : worst.status === "uncertain" ? "Outside the red zone, but its estimated range crosses the edge. No shutoff countdown."
               : worst.status === "watch" ? "Just outside the red zone. No shutoff countdown."
               : "Outside the red zone and its watch band. No shutoff countdown."}
@@ -48,7 +52,7 @@ export function ObjectsCard({ state, className = "" }: { state: StateMessage | n
             From the {worst.side}. The rule needs <b className="font-extrabold">{worst.required_in.toFixed(0)} in</b>.
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <HazardTag hazard={worst.hazard} assessing={worst.assessing} />
+            {!worst.is_person && worst.status !== "pending" && <HazardTag hazard={worst.hazard} assessing={worst.assessing} />}
             {worst.material && <span className="tag">{worst.material}</span>}
           </div>
           {worst.why && <p className="border-l-2 border-ink pl-3 text-base">“{worst.why}”</p>}

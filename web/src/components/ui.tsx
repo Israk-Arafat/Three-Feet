@@ -30,13 +30,13 @@ export function Swatch({ tone }: { tone: Tone }) {
   return <span className="swatch" data-tone={tone} aria-hidden="true" />;
 }
 
-const STATUS_WORDS = { violation: "In the zone", watch: "Near the zone", uncertain: "Outside, uncertain", clear: "Outside zone" } as const;
+const STATUS_WORDS = { violation: "In the zone", pending: "Awaiting SAM", watch: "Near the zone", uncertain: "Outside, uncertain", clear: "Outside zone" } as const;
 
 /** A measured object's status: a swatch and words, never colour alone. */
 export function StatusWord({ status }: { status: keyof typeof STATUS_WORDS }) {
   return (
     <span className="inline-flex items-center gap-2 whitespace-nowrap font-medium">
-      <Swatch tone={status === "uncertain" ? "watch" : status} />
+      <Swatch tone={status === "uncertain" || status === "pending" ? "watch" : status} />
       {STATUS_WORDS[status]}
     </span>
   );

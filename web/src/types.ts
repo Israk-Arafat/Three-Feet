@@ -17,7 +17,7 @@ export type SafetyState =
   | "OFF_REQUESTED";
 
 export type DegradedFlag = "CAMERA_LOST" | "CALIBRATION_DRIFT" | "API_DOWN" | "PLUG_UNREACHABLE";
-export type ObjectStatus = "clear" | "watch" | "uncertain" | "violation";
+export type ObjectStatus = "clear" | "watch" | "uncertain" | "pending" | "violation";
 export type Hazard = "high" | "medium" | "low";
 
 export interface ZoneObjectInfo {
@@ -33,6 +33,7 @@ export interface ZoneObjectInfo {
   why: string | null;
   assessing: boolean;
   material: string | null;
+  is_person?: boolean;
 }
 
 export interface Rule {
@@ -119,6 +120,7 @@ export interface Incident {
   report: string | null;
   report_source: "muse-wonder" | "template" | null;
   events: EventItem[];
+  trigger?: { label: string; track_id: string; distance_in: number; required_in: number; side: string } | null;
 }
 
 export interface AppConfig {
