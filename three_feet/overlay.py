@@ -13,9 +13,11 @@ PAPER_BGR = (255, 254, 251)
 STATUS_BGR: dict[str, tuple[int, int, int]] = {
     "clear": (105, 150, 93),
     "watch": (34, 181, 244),
+    "uncertain": (34, 181, 244),
+    "pending": (34, 181, 244),
     "violation": (61, 69, 192),
 }
-STATUS_TEXT_BGR: dict[str, tuple[int, int, int]] = {"clear": PAPER_BGR, "watch": INK_BGR, "violation": PAPER_BGR}
+STATUS_TEXT_BGR: dict[str, tuple[int, int, int]] = {"clear": PAPER_BGR, "watch": INK_BGR, "uncertain": INK_BGR, "pending": INK_BGR, "violation": PAPER_BGR}
 
 
 def put_label(img: np.ndarray, text: str, org: tuple[int, int], color=PAPER_BGR, scale: float = 0.6,

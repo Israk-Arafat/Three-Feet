@@ -14,7 +14,7 @@ from .meta_client import CostMeter, chat_json, image_data_url
 HazardLevel = Literal["high", "medium", "low"]
 
 # Always segmented in addition to what Muse Spark proposes.
-ALWAYS_ON_CONCEPTS = ["blanket", "curtain", "cardboard box", "towel", "clothing", "paper"]
+ALWAYS_ON_CONCEPTS = ["person", "blanket", "curtain", "cardboard box", "towel", "clothing", "paper"]
 
 INVENTORY_SCHEMA = {
     "type": "object",
@@ -94,7 +94,7 @@ class SparkClient:
         self.meter = meter
         self.model = model or get_settings().spark_model
 
-    def inventory(self, scene_with_zone: np.ndarray, max_concepts: int = 6) -> list[str]:
+    def inventory(self, scene_with_zone: np.ndarray, max_concepts: int = 7) -> list[str]:
         """Ask Muse Spark which concepts SAM should look for, merged with the always-on list."""
         url, _ = image_data_url(scene_with_zone, max_side=1024)
         data = chat_json(
@@ -109,7 +109,7 @@ class SparkClient:
             self.meter,
         )
         proposed = [o["phrase"].strip().lower() for o in data.get("objects", []) if o.get("in_or_near_zone")]
-        return merge_concepts(proposed, ALWAYS_ON_CONCEPTS, max_concepts)
+        return merge_concepts(["person", *proposed], ALWAYS_ON_CONCEPTS, max_concepts)
 
     def assess(self, crop: np.ndarray, scene: np.ndarray, concept: str) -> HazardAssessment:
         crop_url, _ = image_data_url(crop, max_side=512)

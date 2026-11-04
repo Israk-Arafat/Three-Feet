@@ -1,8 +1,8 @@
-"""Live perception with Meta models, run off the safety loop's thread.
+"""Local mask tracking with scene-triggered and periodic Meta model verification.
 
-Muse Spark proposes concepts (every few seconds) -> SAM 3.1 segments each concept in parallel (<= ~1 Hz)
--> IoU tracker keeps identities -> Muse Spark judges each new track's hazard (async; "high" until judged).
-API calls only happen while the motion gate is active, plus a slow idle refresh, and stop at the budget cap.
+SAM initializes masks; local optical flow carries them between model checks. New
+scene content or uncertain tracking requests an early check. Model verification
+and camera/tracking freshness have separate deadlines, and failures stay unhealthy.
 """
 
 from __future__ import annotations
@@ -16,27 +16,34 @@ import cv2
 import numpy as np
 
 from ..sources import Frame
+from .local_tracking import LocalMaskTracker
 from .meta_client import CostMeter
 from .sam import SamClient
 from .spark import ALWAYS_ON_CONCEPTS, SparkClient
-from .tracking import PerceivedObject, Tracker, dedupe_detections
+from .tracking import PerceivedObject, Tracker, dedupe_detections, is_person_label
 
 
 class MetaPerception:
     def __init__(self, sam: SamClient, spark: SparkClient, meter: CostMeter,
-                 sam_period_s: float = 1.0, inventory_period_s: float = 5.0, idle_refresh_s: float = 2.0,
-                 max_result_age_s: float = 5.0, clock: Callable[[], float] = time.time) -> None:
+                 sam_period_s: float = 1.0, inventory_period_s: float = 60.0, idle_refresh_s: float = 30.0,
+                 max_result_age_s: float = 5.0, clock: Callable[[], float] = time.time,
+                 verification_max_age_s: float = 45.0) -> None:
         self.sam, self.spark, self.meter = sam, spark, meter
         self.sam_period_s = sam_period_s
         self.inventory_period_s = inventory_period_s
         self.idle_refresh_s = idle_refresh_s
         self.max_result_age_s = max_result_age_s
+        self.verification_max_age_s = verification_max_age_s
         self.clock = clock
         self.last_success_at: float | None = None
         self.last_frame_ts: float | None = None
         self.last_frame_index: int | None = None
         self._segmentation_error: str | None = None
         self.tracker = Tracker()
+        self._local = LocalMaskTracker()
+        self._last_verification_ts: float | None = None
+        self._scene_changed = False
+        self.local_tracking_active = False
         self.concepts: list[str] = list(ALWAYS_ON_CONCEPTS)
         self.fault_api = False  # demo fault injection
         self.last_sam_latency_s: float | None = None
@@ -44,8 +51,8 @@ class MetaPerception:
         self._lock = threading.Lock()
         self._busy = False
         self._generation = 0
-        self._last_cycle = 0.0
-        self._last_inventory = 0.0
+        self._last_cycle = float("-inf")
+        self._last_inventory = float("-inf")
         self._inventory_busy = False
         self._pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="perception")
         self._inventory_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="inventory")
@@ -62,6 +69,12 @@ class MetaPerception:
         return None if stamp is None else max(0.0, self.clock() - stamp)
 
     @property
+    def verification_age_s(self) -> float | None:
+        with self._lock:
+            stamp = self._last_verification_ts
+        return None if stamp is None else max(0.0, self.clock() - stamp)
+
+    @property
     def health_reason(self) -> str | None:
         if self.fault_api:
             return "API outage simulated"
@@ -69,25 +82,51 @@ class MetaPerception:
             return "API budget exhausted; model monitoring paused"
         with self._lock:
             stamp, error = self.last_frame_ts, self._segmentation_error
+            verified, changed = self._last_verification_ts, self._scene_changed
         if error:
             return error
         if stamp is None:
             return "Waiting for the first successful object detection"
         if not 0 <= self.clock() - stamp <= self.max_result_age_s:
             return "Object detections are stale; waiting for a fresh result"
+        if verified is None or not 0 <= self.clock() - verified <= self.verification_max_age_s:
+            return "Model verification is stale; waiting for a fresh result"
+        if changed:
+            return "Scene changed or local tracking uncertain; waiting for model verification"
         return None
 
     def on_frame(self, frame: Frame, t: float, motion: bool, zone_view: np.ndarray | None = None) -> None:
-        """Non-blocking: maybe start a perception cycle on this frame."""
+        """Track locally even during API work; queue model work only when needed.
+
+        The engine's motion flag includes a hold period. Raw motion alone must not
+        restart six API calls when local masks already explain the movement.
+        """
         if self.fault_api:
             return
         with self._lock:
+            # Duplicate, out-of-order, or old input cannot refresh tracking health.
+            if (not 0 <= self.clock() - frame.ts <= self.max_result_age_s
+                    or (self.last_frame_ts is not None and frame.ts < self.last_frame_ts)):
+                return
+            if self.last_frame_index == frame.index:
+                return
+            if self._last_verification_ts is not None:
+                gap = self.last_frame_ts is None or frame.ts - self.last_frame_ts > self.max_result_age_s
+                changed = self._local.update(frame.image, self.tracker)
+                self._scene_changed = self._scene_changed or gap or changed
+                if not self._scene_changed and self._segmentation_error is None:
+                    self.last_frame_ts, self.last_frame_index = frame.ts, frame.index
+                    self.local_tracking_active = True
             if self._busy:
                 return
             # Keep cycling at full rate until every track is confirmed or aged out; otherwise an object that was
             # just removed lingers in the tracker for several idle refreshes and keeps blocking the reset.
             settling = any(o.misses > 0 for o in self.tracker.objects())
-            period = self.sam_period_s if (motion or settling) else min(self.idle_refresh_s, self.max_result_age_s / 2)
+            needs_check = (self._last_verification_ts is None or self._scene_changed or settling
+                           or self._segmentation_error is not None)
+            if not needs_check and t - self._last_cycle < self.idle_refresh_s:
+                return
+            period = self.sam_period_s
             if t - self._last_cycle < period or self.meter.over_budget():
                 return
             self._busy = True
@@ -100,11 +139,24 @@ class MetaPerception:
         with self._lock:
             self._generation += 1
             self.tracker = Tracker()
+            self._local = LocalMaskTracker()
+            self._last_verification_ts = None
+            self._scene_changed = False
+            self.local_tracking_active = False
+            self.concepts = list(ALWAYS_ON_CONCEPTS)
             self.last_success_at = self.last_frame_ts = self.last_frame_index = None
             self._segmentation_error = None
             self.last_error = None
-            self._last_cycle = 0.0
+            self._last_cycle = float("-inf")
+            self._last_inventory = float("-inf")
+            self._inventory_busy = False
             self._busy = False
+
+    def request_check(self) -> None:
+        """An unexplained zone change needs a fresh inventory and SAM response."""
+        with self._lock:
+            self._scene_changed = True
+            self._last_inventory = float("-inf")
 
     def current(self) -> list[PerceivedObject]:
         with self._lock:
@@ -115,39 +167,74 @@ class MetaPerception:
         self._assess_pool.shutdown(wait=False, cancel_futures=True)
         self._inventory_pool.shutdown(wait=False, cancel_futures=True)
 
-    def _refresh_inventory(self, view: np.ndarray) -> None:
+    def _refresh_inventory(self, view: np.ndarray, generation: int) -> None:
         try:
-            self.concepts = self.spark.inventory(view)
+            concepts = self.spark.inventory(view)
+            with self._lock:
+                if generation == self._generation:
+                    self.concepts = concepts
         except Exception as exc:
-            self.last_error = f"inventory: {type(exc).__name__}: {exc}"
+            with self._lock:
+                if generation == self._generation:
+                    self.last_error = f"inventory: {type(exc).__name__}: {exc}"
         finally:
             with self._lock:
-                self._inventory_busy = False
+                if generation == self._generation:
+                    self._inventory_busy = False
 
     def _cycle(self, image: np.ndarray, t: float, zone_view: np.ndarray | None,
                frame_ts: float, frame_index: int, generation: int = 0) -> None:
         try:
             # The concept list refreshes in the background so a slow LLM call never delays segmentation.
             with self._lock:
-                due = t - self._last_inventory >= self.inventory_period_s and not self._inventory_busy
+                if generation != self._generation:
+                    return
+                due = not self._inventory_busy and (
+                    t - self._last_inventory >= self.inventory_period_s
+                    or self._scene_changed and t - self._last_inventory >= 5
+                )
                 if due:
                     self._inventory_busy = True
                     self._last_inventory = t
+                concepts = list(self.concepts)
+                if "person" not in concepts:
+                    concepts.insert(0, "person")
             if due:
-                self._inventory_pool.submit(self._refresh_inventory, zone_view if zone_view is not None else image)
-            results = self.sam.segment_many(image, self.concepts)
+                self._inventory_pool.submit(self._refresh_inventory, zone_view if zone_view is not None else image,
+                                            generation)
+            results = self.sam.segment_many(image, concepts)
             self.last_sam_latency_s = max(r.latency_s for r in results) if results else None
-            detections = dedupe_detections([d for r in results for d in r.detections])
+            raw = [d for r in results for d in r.detections]
+            # A clothing box must not replace the person detection during generic IoU deduplication.
+            people = dedupe_detections([d for d in raw if is_person_label(d.concept)])
+            detections = [*people, *dedupe_detections([d for d in raw if not is_person_label(d.concept)])]
+            person_mask = np.zeros(image.shape[:2], bool)
+            for person in people:
+                person_mask |= person.mask
             with self._lock:
                 if generation != self._generation:
                     return
                 created = self.tracker.update(detections)
+                for track in self.tracker.objects():
+                    area = int(track.mask.sum())
+                    track.extra["on_person"] = bool(area and not is_person_label(track.label)
+                        and int((track.mask & person_mask).sum()) / area >= .8)
                 self.last_success_at = self.clock()
                 self.last_frame_ts = frame_ts
                 self.last_frame_index = frame_index
+                self._last_verification_ts = frame_ts
+                self._local.seed(image, self.tracker)
+                self._scene_changed = False
+                self.local_tracking_active = False
                 self._segmentation_error = None
-            for track in created:
-                self._assess_pool.submit(self._assess, track, image)
+                assessments = [(track, track.mask.copy()) for track in created
+                               if not is_person_label(track.label) and not track.extra.get("on_person")]
+                for track in self.tracker.objects():
+                    if is_person_label(track.label) or track.extra.get("on_person"):
+                        track.assessing = False
+                        track.why = "Person or clothing being worn; not treated as an object left in the zone."
+            for track, mask in assessments:
+                self._assess_pool.submit(self._assess, track, image, mask)
             self.last_error = None
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
@@ -160,9 +247,11 @@ class MetaPerception:
                 if generation == self._generation:
                     self._busy = False
 
-    def _assess(self, track: PerceivedObject, image: np.ndarray) -> None:
+    def _assess(self, track: PerceivedObject, image: np.ndarray, mask: np.ndarray) -> None:
         try:
-            ys, xs = np.nonzero(track.mask)
+            # Local tracking may already have moved the live mask; crop the frame
+            # using the mask captured when this SAM result was accepted.
+            ys, xs = np.nonzero(mask)
             if len(xs) == 0:
                 return
             pad = 20

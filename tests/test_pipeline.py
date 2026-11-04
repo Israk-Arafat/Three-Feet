@@ -7,6 +7,7 @@ import numpy as np
 from three_feet.perception.meta_client import CostMeter
 from three_feet.perception.pipeline import MetaPerception
 from three_feet.perception.sam import Detection, SamResult
+from three_feet.perception.spark import ALWAYS_ON_CONCEPTS
 from three_feet.sources import Frame
 
 
@@ -37,7 +38,7 @@ class SlowSpark:
 
 
 def _frame(i):
-    return Frame(np.zeros((20, 20, 3), np.uint8), i, i)
+    return Frame(np.zeros((20, 20, 3), np.uint8), time.time(), i)
 
 
 def _wait(cond, timeout=2.0):
@@ -50,7 +51,7 @@ def _wait(cond, timeout=2.0):
 
 
 def _perception(sam, spark):
-    return MetaPerception(sam, spark, CostMeter(), sam_period_s=0.0, idle_refresh_s=1e6)
+    return MetaPerception(sam, spark, CostMeter(), sam_period_s=0.0, idle_refresh_s=1.0)
 
 
 def test_slow_inventory_does_not_block_segmentation():
@@ -108,8 +109,8 @@ def test_health_requires_a_successful_fresh_frame_and_exposes_its_identity():
         p.on_frame(Frame(_frame(1).image, 100, 8), 106, True)
         assert _wait(lambda: not p._busy)
         assert not p.api_ok
-        p.on_frame(Frame(_frame(1).image, 107, 9), 107, True)
         now[0] = 107
+        p.on_frame(Frame(_frame(1).image, 107, 9), 107, True)
         assert _wait(lambda: not p._busy)
         assert p.api_ok and p.last_frame_index == 9
     finally:
@@ -121,7 +122,7 @@ def test_segmentation_failure_never_recovers_just_because_time_passed():
     sam = FakeSam()
     sam.present = False
     original = sam.segment_many
-    p = MetaPerception(sam, QuietSpark(), CostMeter(), clock=lambda: now[0])
+    p = MetaPerception(sam, QuietSpark(), CostMeter(), idle_refresh_s=1, clock=lambda: now[0])
     try:
         p.on_frame(Frame(_frame(1).image, 100, 1), 100, True)
         assert _wait(lambda: not p._busy) and p.api_ok
@@ -162,7 +163,7 @@ def test_stalled_call_expires_the_previous_success():
     now = [100.0]
     sam = FakeSam()
     sam.present = False
-    p = MetaPerception(sam, QuietSpark(), CostMeter(), clock=lambda: now[0])
+    p = MetaPerception(sam, QuietSpark(), CostMeter(), idle_refresh_s=1, clock=lambda: now[0])
     entered, release = threading.Event(), threading.Event()
     original = sam.segment_many
     try:
@@ -190,7 +191,8 @@ def test_stalled_call_expires_the_previous_success():
 
 def test_reset_forgets_the_old_camera_and_ignores_a_cycle_still_running():
     sam = FakeSam()
-    p = MetaPerception(sam, QuietSpark(), CostMeter(), clock=lambda: 100)
+    now = [100.0]
+    p = MetaPerception(sam, QuietSpark(), CostMeter(), clock=lambda: now[0])
     entered, release = threading.Event(), threading.Event()
     original = sam.segment_many
     try:
@@ -205,12 +207,178 @@ def test_reset_forgets_the_old_camera_and_ignores_a_cycle_still_running():
             return original(*args)
 
         sam.segment_many = slow
+        now[0] = 101
         p.on_frame(Frame(_frame(1).image, 101, 2), 101, True)
         assert entered.wait(1)
         p.reset()  # the camera changed while this cycle was looking at the old view
         release.set()
         time.sleep(0.2)  # let the stale cycle finish; its result must be dropped
         assert p.current() == [] and not p.api_ok
+    finally:
+        release.set()
+        p.shutdown()
+
+
+def test_one_minute_of_held_motion_uses_two_sam_cycles_with_fresh_local_tracking():
+    now = [100.0]
+    meter = CostMeter()
+
+    class CountingSam(FakeSam):
+        def segment_many(self, image, concepts):
+            for _ in concepts:
+                meter.add("sam_image", 0.0025)
+            return super().segment_many(image, concepts)
+
+    class CountingSpark(QuietSpark):
+        calls = 0
+
+        def inventory(self, view):
+            self.calls += 1
+            return list(ALWAYS_ON_CONCEPTS)
+
+    sam, spark = CountingSam(), CountingSpark()
+    sam.present = False
+    p = MetaPerception(sam, spark, meter, clock=lambda: now[0])
+    try:
+        for second in range(60):
+            now[0] = 100 + second
+            p.on_frame(Frame(_frame(0).image, now[0], second), now[0], True)
+            assert _wait(lambda: not p._busy)
+            assert p.api_ok
+        assert sam.calls == 2
+        assert meter.calls["sam_image"] == 12
+        assert abs(meter.total_usd - 0.03) < 1e-9
+        assert spark.calls == 1
+        assert p.last_frame_index == 59 and p.result_age_s == 0
+        assert p.verification_age_s == 29 and p.local_tracking_active
+    finally:
+        p.shutdown()
+
+
+def test_new_scene_content_triggers_early_check_even_without_motion_flag():
+    now = [100.0]
+    sam = FakeSam()
+    sam.present = False
+    p = MetaPerception(sam, QuietSpark(), CostMeter(), clock=lambda: now[0])
+    try:
+        image = np.zeros((100, 100, 3), np.uint8)
+        p.on_frame(Frame(image, 100, 1), 100, False)
+        assert _wait(lambda: not p._busy)
+        now[0] = 101
+        image = image.copy()
+        image[40:60, 40:60] = 255
+        p.on_frame(Frame(image, 101, 2), 101, False)
+        assert _wait(lambda: not p._busy)
+        assert sam.calls == 2 and p.api_ok and p.verification_age_s == 0
+    finally:
+        p.shutdown()
+
+
+def test_ongoing_local_frames_cannot_extend_stalled_periodic_verification_deadline():
+    now = [100.0]
+    sam = FakeSam()
+    sam.present = False
+    p = MetaPerception(sam, QuietSpark(), CostMeter(), clock=lambda: now[0])
+    entered, release = threading.Event(), threading.Event()
+    original = sam.segment_many
+    try:
+        image = _frame(0).image
+        p.on_frame(Frame(image, 100, 0), 100, False)
+        assert _wait(lambda: not p._busy)
+
+        def slow(*args):
+            entered.set()
+            release.wait(5)
+            return original(*args)
+
+        sam.segment_many = slow
+        for second in range(1, 47):
+            now[0] = 100 + second
+            p.on_frame(Frame(image, now[0], second), now[0], False)
+            if second == 30:
+                assert entered.wait(1)
+        assert p._busy and p.result_age_s == 0
+        assert not p.api_ok and "verification is stale" in p.health_reason
+        release.set()
+        assert _wait(lambda: not p._busy)
+        assert not p.api_ok  # the old request's completion cannot refresh camera health
+    finally:
+        release.set()
+        p.shutdown()
+
+
+def test_failed_verification_is_not_hidden_by_more_local_frames():
+    now = [100.0]
+    sam = FakeSam()
+    sam.present = False
+    p = MetaPerception(sam, QuietSpark(), CostMeter(), idle_refresh_s=2, clock=lambda: now[0])
+    try:
+        image = _frame(0).image
+        p.on_frame(Frame(image, 100, 0), 100, False)
+        assert _wait(lambda: not p._busy)
+
+        def fail(*args):
+            raise ConnectionError("offline")
+
+        sam.segment_many = fail
+        for second in range(1, 5):
+            now[0] = 100 + second
+            p.on_frame(Frame(image, now[0], second), now[0], False)
+            assert _wait(lambda: not p._busy)
+        assert not p.api_ok and "offline" in p.health_reason
+    finally:
+        p.shutdown()
+
+
+def test_duplicate_old_and_out_of_order_frames_cannot_refresh_local_health():
+    now = [100.0]
+    sam = FakeSam()
+    sam.present = False
+    p = MetaPerception(sam, QuietSpark(), CostMeter(), clock=lambda: now[0])
+    try:
+        image = _frame(0).image
+        p.on_frame(Frame(image, 100, 1), 100, False)
+        assert _wait(lambda: not p._busy)
+        for second in range(1, 7):
+            now[0] = 100 + second
+            p.on_frame(Frame(image, now[0], 1), now[0], False)  # duplicate identity
+            p.on_frame(Frame(image, 99, second + 10), now[0], False)
+        assert p.last_frame_ts == 100 and sam.calls == 1
+        assert not p.api_ok and "stale" in p.health_reason
+    finally:
+        p.shutdown()
+
+
+def test_new_scene_stays_unhealthy_until_verification_completes():
+    now = [100.0]
+    sam = FakeSam()
+    sam.present = False
+    p = MetaPerception(sam, QuietSpark(), CostMeter(), clock=lambda: now[0])
+    entered, release = threading.Event(), threading.Event()
+    original = sam.segment_many
+    try:
+        image = np.zeros((100, 100, 3), np.uint8)
+        p.on_frame(Frame(image, 100, 0), 100, False)
+        assert _wait(lambda: not p._busy)
+
+        def slow(*args):
+            entered.set()
+            release.wait(5)
+            return original(*args)
+
+        sam.segment_many = slow
+        now[0] = 101
+        changed = image.copy()
+        changed[40:60, 40:60] = 255
+        p.on_frame(Frame(changed, 101, 1), 101, False)
+        assert entered.wait(1)
+        assert not p.api_ok and "Scene changed" in p.health_reason
+        now[0] = 102
+        p.on_frame(Frame(changed, 102, 2), 102, False)
+        assert not p.api_ok
+        release.set()
+        assert _wait(lambda: not p._busy)
+        assert p.api_ok
     finally:
         release.set()
         p.shutdown()

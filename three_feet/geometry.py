@@ -10,7 +10,7 @@ import numpy as np
 
 Side = Literal["front", "back", "left", "right", "inside"]
 SIDES: tuple[Side, ...] = ("front", "back", "left", "right", "inside")
-Status = Literal["clear", "watch", "violation"]
+Status = Literal["clear", "watch", "uncertain", "pending", "violation"]
 
 
 @dataclass
@@ -105,10 +105,10 @@ class HeaterFootprint:
 
 @dataclass(frozen=True)
 class Clearances:
-    front_in: float = 36.0
-    back_in: float = 36.0
-    left_in: float = 36.0
-    right_in: float = 36.0
+    front_in: float = 15.0
+    back_in: float = 15.0
+    left_in: float = 15.0
+    right_in: float = 15.0
 
     @classmethod
     def from_rule(cls, rule) -> "Clearances":
@@ -156,10 +156,12 @@ class Measurement:
 
 
 def classify(slack_in: float, err_in: float, watch_margin_in: float) -> Status:
-    """Conservative: use the pessimistic end of the error bar."""
-    if slack_in - err_in < 0:
+    """Red means nominal overlap; outside uncertainty stays in a bounded amber band."""
+    if slack_in < 0:
         return "violation"
-    if slack_in - err_in < watch_margin_in:
+    if slack_in < watch_margin_in:
+        if slack_in - err_in < 0:
+            return "uncertain"
         return "watch"
     return "clear"
 

@@ -82,6 +82,13 @@ def test_mask_outside_view_returns_none_and_shape_checked():
 
 def test_classify():
     assert classify(-1, 0.5, 6) == "violation"
-    assert classify(0.4, 0.5, 6) == "violation"
+    assert classify(0.4, 0.5, 6) == "uncertain"
     assert classify(5, 0.5, 6) == "watch"
     assert classify(10, 0.5, 6) == "clear"
+
+
+def test_outside_uncertainty_is_bounded_by_watch_band():
+    assert classify(20.2 - 15, 11, 2) == "clear"  # screenshot's drill
+    assert classify(1, 11, 2) == "uncertain"
+    assert classify(2, 1000, 2) == "clear"
+    assert classify(-.01, 0, 2) == "violation"

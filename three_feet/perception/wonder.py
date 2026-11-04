@@ -118,22 +118,26 @@ class WonderClient:
             self.meter,
         )
 
-    def incident_report(self, events: list[dict], rule: ClearanceRule) -> str:
+    def incident_report(self, events: list[dict], rule: ClearanceRule, *, trigger: dict | None = None) -> str:
         """Plain-language explanation of one shutoff incident from the event log."""
         zone = get_settings().display_timezone
         local_events = [
             {**{k: v for k, v in event.items() if k != "t"},
-             "time_local": datetime.fromtimestamp(event["t"], ZoneInfo(zone)).isoformat()}
+             "time_local": datetime.fromtimestamp(event["t"], ZoneInfo(zone)).isoformat(),
+             "time_display": datetime.fromtimestamp(event["t"], ZoneInfo(zone)).strftime("%b %d, %I:%M:%S %p %Z")}
             for event in events
         ]
         prompt = (
             "You write short incident reports for Three Feet, a space-heater clearance monitor. Using only "
             "the events below, explain in 3-5 sentences what was detected, how close it was versus the "
-            "rule (cite the manual page if present), what action was taken, and whether shutoff was "
-            "independently confirmed. Confirmation requires BOTH power_off=true and indicator_off=true "
-            "on a confirmed event; a plug report alone never proves independent confirmation. "
-            f"Use the provided time_local values in {zone}, including their UTC offset; do not convert "
-            "or infer a timezone. Do not invent facts.\n\n"
+            "rule (cite the manual page if present), and whether an OFF command was sent or failed. "
+            "Describe only command outcomes. Do not claim the heater is off or that shutdown was verified. "
+            "The TRIGGER identifies the object that caused THIS OFF request. Name that object first. "
+            "Earlier unclassified movement is context, not the trigger; never substitute its name or "
+            "distance for the triggering object. Do not link different track IDs as the same object. "
+            f"Use the human-readable time_display values in {zone}; do not print raw ISO timestamps. "
+            "Do not invent facts.\n\n"
+            f"TRIGGER: {json.dumps(trigger)}\n\n"
             f"RULE: {rule.to_json()}\n\nEVENTS (JSONL):\n" + "\n".join(json.dumps(e) for e in local_events)
         )
         response = self.client.chat.completions.create(

@@ -5,9 +5,16 @@ from __future__ import annotations
 import itertools
 from dataclasses import dataclass, field
 
+import cv2
 import numpy as np
 
 from .sam import Detection
+
+PERSON_WORDS = {"person", "people", "man", "woman", "child", "human", "adult"}
+
+
+def is_person_label(label: str) -> bool:
+    return bool(set(label.lower().replace("-", " ").split()) & PERSON_WORDS)
 
 
 @dataclass
@@ -81,6 +88,13 @@ class Tracker:
 
     def objects(self) -> list[PerceivedObject]:
         return list(self.tracks.values())
+
+    def move(self, track_id: str, mask: np.ndarray) -> None:
+        """Move a local mask without aging the track or changing its hazard judgment."""
+        x, y, w, h = cv2.boundingRect(mask.astype(np.uint8))
+        if w and h:
+            self.tracks[track_id].mask = mask
+            self._boxes[track_id] = (float(x), float(y), float(x + w), float(y + h))
 
 
 def dedupe_detections(detections: list[Detection], iou_threshold: float = 0.6) -> list[Detection]:
