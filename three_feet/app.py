@@ -1,7 +1,8 @@
 """FastAPI server: WebSocket state, annotated MJPEG stream, REST commands, and the built dashboard.
 
+    python -m three_feet.app                                      # live; camera and plug are set in the dashboard
     python -m three_feet.app --source sim --demo                  # no hardware, no API key needed
-    python -m three_feet.app --source phone --plug cync --demo    # live
+    python -m three_feet.app --source phone --plug cync --demo    # live, with the plug named on the command line
     python -m three_feet.app --source data/photos --demo          # replay photos (real API calls)
 """
 
@@ -23,13 +24,20 @@ from pydantic import BaseModel, Field
 
 from .calibration import CalibrationFile
 from .config import CALIBRATION_PATH, REPO_ROOT, RULES_PATH, get_settings
-from .engine import Engine, NullPerception
+from .connections import (
+    ConnectionService,
+    build_camera,
+    display_address,
+    startup_connections,
+)
+from .engine import ConnectionChangeBlocked, Engine, NullPerception
 from .perception.manual_finder import ManualFinder, ManualNotFound, clean_heater_name
 from .perception.meta_client import CostMeter, make_client
 from .perception.wonder import ClearanceRule, WonderClient, rule_from_extraction
 from .safety.actuator import DryRunPlug, make_switch
+from .safety.cync_plug import CyncLoginError, DeviceChoiceError
 from .setup_service import DimensionsBody, ManualSetupBody, SetupError, SetupService
-from .sources import FolderSource, open_source
+from .sources import FolderSource, NoCameraSource, open_source
 
 WEB_DIST = REPO_ROOT / "web" / "dist"
 SIM_EXTRACTION = {
@@ -77,12 +85,37 @@ class SimBody(BaseModel):
     spot: str | None = None
 
 
+class CameraBody(BaseModel):
+    address: str = Field(min_length=1, max_length=2000)
+    user: str = Field(default="", max_length=200)
+    password: str | None = Field(default=None, max_length=500)  # blank keeps the password already in use
+    verify_tls: bool = False
+
+
+class PlugBody(BaseModel):
+    kind: Literal["dryrun", "cync"]
+    name: str = Field(default="", max_length=80)
+
+
+class CyncLoginBody(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=500)
+
+
+class CyncCodeBody(BaseModel):
+    code: str = Field(min_length=1, max_length=20)
+
+
 def default_rule(minimum_in: float) -> ClearanceRule:
     return ClearanceRule(minimum_in, minimum_in, minimum_in, minimum_in, source="default")
 
 
-def build_engine(source_spec: str, plug_kind: str, demo: bool) -> tuple[Engine, object | None]:
-    """Returns the engine and, in sim mode, the autoplay controller."""
+def build_engine(source_spec: str, plug_kind: str, demo: bool,
+                 plug_explicit: bool = True) -> tuple[Engine, object | None]:
+    """Returns the engine and, in sim mode, the autoplay controller.
+
+    `plug_explicit` is True when `--plug` was given: it then wins over a different saved plug kind.
+    """
     s = get_settings()
     meter = CostMeter(s.budget_usd_per_hour)
     try:
@@ -112,15 +145,40 @@ def build_engine(source_spec: str, plug_kind: str, demo: bool) -> tuple[Engine, 
     from .safety.verifier import IndicatorProbe
 
     path = Path(source_spec)
-    source = FolderSource(path, loop=True, hold_s=4.0) if path.is_dir() else open_source(source_spec)
+    saved_camera, saved_plug = startup_connections(source_spec, plug_kind, plug_explicit)
+    notes: list[str] = []
+    source = None
+    source_label = source_spec
+    if saved_camera is not None:
+        try:
+            source, source_label = build_camera(saved_camera), display_address(saved_camera.address)
+        except Exception as exc:  # a bad saved choice must never stop the server from starting
+            notes.append(f"Saved camera ignored: {exc}")
+    if source is None and source_spec == "phone" and not s.camera_url:
+        source, source_label = NoCameraSource(), "no camera"
+        notes.append("No camera yet. Click Camera and plug to add one.")
+    if source is None:
+        source = FolderSource(path, loop=True, hold_s=4.0) if path.is_dir() else open_source(source_spec)
+    switch = None
+    if saved_plug is not None:
+        try:
+            switch = make_switch(saved_plug.kind, saved_plug.name)
+        except Exception as exc:
+            notes.append(f"Saved plug ignored: {exc}")
+    if switch is None:
+        switch = make_switch(plug_kind, s.plug_name)
     calib = CalibrationFile.load() if CALIBRATION_PATH.exists() else None
     probe = (IndicatorProbe(calib.indicator_roi, calib.indicator_threshold)
              if calib and calib.indicator_roi and calib.indicator_threshold is not None else None)
-    perception = (MetaPerception(SamClient(client, meter), SparkClient(client, meter), meter)
+    perception = (MetaPerception(SamClient(client, meter), SparkClient(client, meter), meter,
+                                idle_refresh_s=min(s.perception_idle_refresh_s, s.perception_max_age_s / 2),
+                                max_result_age_s=s.perception_max_age_s)
                   if client else NullPerception())
-    engine = Engine(source, perception, make_switch(plug_kind, s.plug_name), s, calib=calib, rule=rule,
+    engine = Engine(source, perception, switch, s, calib=calib, rule=rule,
                     probe=probe, wonder=wonder, meter=meter, mode="replay" if path.is_dir() else "live",
-                    demo=demo, source_label=source_spec)
+                    demo=demo, source_label=source_label)
+    for note in notes:
+        engine.log("setup", note)
     if calib is None:
         engine.log("setup", "Open Heater setup, enter the base measurements, then find or mark its footprint.")
     return engine, None
@@ -129,14 +187,16 @@ def build_engine(source_spec: str, plug_kind: str, demo: bool) -> tuple[Engine, 
 def create_app() -> FastAPI:
     source = os.environ.get("TF_SOURCE", "sim")
     plug = os.environ.get("TF_PLUG", "dryrun")
+    plug_explicit = os.environ.get("TF_PLUG_EXPLICIT", "1") == "1"
     demo = os.environ.get("TF_DEMO", "1") == "1"
     autoplay_on = os.environ.get("TF_AUTOPLAY", "1") == "1"
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        engine, autoplay = build_engine(source, plug, demo)
+        engine, autoplay = build_engine(source, plug, demo, plug_explicit)
         app.state.engine, app.state.autoplay = engine, autoplay
         app.state.setup = SetupService(engine)
+        app.state.connections = ConnectionService(engine)
         engine.start()
         if autoplay is not None:
             if not autoplay_on:
@@ -145,6 +205,7 @@ def create_app() -> FastAPI:
         yield
         if autoplay is not None:
             autoplay.stop()
+        app.state.connections.close()
         app.state.setup.close()
         engine.stop()
 
@@ -331,6 +392,47 @@ def create_app() -> FastAPI:
                   {"sides": below, "default_in": minimum})
         return {"ok": True, "rule": rule.__dict__}
 
+    # -- connections (camera and plug) -------------------------------------------------------------
+    def connection_call(operation, *args, **kwargs):
+        try:
+            return operation(*args, **kwargs)
+        except DeviceChoiceError as exc:
+            raise HTTPException(409, {"message": str(exc), "devices": exc.devices}) from exc
+        except ConnectionChangeBlocked as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except (ValueError, CyncLoginError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except ImportError as exc:
+            raise HTTPException(501, 'Cync support is not installed. Run: pip install -e ".[cync]"') from exc
+        except (ConnectionError, RuntimeError, OSError) as exc:
+            raise HTTPException(502, str(exc) or type(exc).__name__) from exc
+
+    @app.get("/api/connections")
+    def get_connections() -> dict:
+        return app.state.connections.snapshot()
+
+    @app.post("/api/connections/camera/test")
+    def test_camera(body: CameraBody) -> dict:
+        return connection_call(app.state.connections.test_camera, body.address, body.user, body.password,
+                               body.verify_tls)
+
+    @app.put("/api/connections/camera")
+    def set_camera(body: CameraBody) -> dict:
+        return connection_call(app.state.connections.apply_camera, body.address, body.user, body.password,
+                               body.verify_tls)
+
+    @app.put("/api/connections/plug")
+    def set_plug(body: PlugBody) -> dict:
+        return connection_call(app.state.connections.apply_plug, body.kind, body.name)
+
+    @app.post("/api/connections/cync/login")
+    def cync_login(body: CyncLoginBody) -> dict:
+        return connection_call(app.state.connections.cync_login, body.email, body.password)
+
+    @app.post("/api/connections/cync/code")
+    def cync_code(body: CyncCodeBody) -> dict:
+        return connection_call(app.state.connections.cync_code, body.code)
+
     # -- setup ------------------------------------------------------------------------------------
     def setup_call(operation, *args):
         try:
@@ -473,7 +575,9 @@ def main() -> None:
     import uvicorn
 
     ap = argparse.ArgumentParser(description="Three Feet server")
-    ap.add_argument("--source", default="sim", help="sim | phone | <mjpeg url> | <webcam index> | <photo folder>")
+    ap.add_argument("--source", default="phone",
+                    help="phone (default: the camera saved in the app, else CAMERA_URL) | sim | <mjpeg url> | "
+                         "<webcam index> | <photo folder>")
     ap.add_argument("--plug", default=None, help="dryrun | cync (default: PLUG_KIND from .env)")
     ap.add_argument("--demo", action="store_true", help="enable fault-injection controls")
     ap.add_argument("--no-autoplay", action="store_true", help="sim: start with the scripted demo paused")
@@ -483,6 +587,7 @@ def main() -> None:
     args = ap.parse_args()
     os.environ["TF_SOURCE"] = args.source
     os.environ["TF_PLUG"] = args.plug or get_settings().plug_kind
+    os.environ["TF_PLUG_EXPLICIT"] = "1" if args.plug else "0"
     os.environ["TF_DEMO"] = "1" if args.demo else "0"
     os.environ["TF_AUTOPLAY"] = "0" if args.no_autoplay else "1"
     uvicorn.run("three_feet.app:create_app", factory=True, host=args.host, port=args.port, reload=args.reload)

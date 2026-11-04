@@ -1,0 +1,21 @@
+.conn-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.conn-section { padding: 24px; min-width: 0; }
+.conn-section + .conn-section { border-left: 1px solid var(--color-rule); }
+.conn-section h3 { font-size: var(--text-lg); margin-bottom: 12px; }
+.conn-pad { padding: 16px 24px 0; }
+.conn-pad-x { margin: 16px 24px 0; }
+.heater-dialog select { width: 100%; background: var(--color-paper); border: 2px solid var(--color-ink); padding: 10px 12px; color: var(--color-ink); font-size: var(--text-md); }
+.conn-warning { padding: 12px; border-left: 3px solid var(--color-state-warn); background: var(--color-paper); font-size: var(--text-sm); line-height: 1.6; margin-bottom: 16px; }
+.conn-ok { color: var(--color-success); font-size: var(--text-sm); line-height: 1.6; padding: 12px 0; }
+.conn-check { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: start; font-size: var(--text-sm); font-weight: 800; margin-bottom: 18px; }
+.conn-check input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--color-ink); }
+.conn-check span { grid-column: 2; font-size: var(--text-xs); color: var(--color-muted); font-weight: 400; }
+.conn-signin { display: grid; gap: 10px; padding: 12px; margin-bottom: 18px; background: var(--color-paper); border-left: 3px solid var(--color-accent); font-size: var(--text-sm); }
+.conn-signin .setup-field { margin-bottom: 6px; }
+.conn-signin .btn { justify-self: start; }
+.conn-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+@media (max-width: 700px) {
+  .conn-layout { grid-template-columns: minmax(0, 1fr); }
+  .conn-section { padding: 18px; }
+  .conn-section + .conn-section { border-left: 0; border-top: 1px solid var(--color-rule); }
+}

@@ -151,6 +151,10 @@ class MeasuredObject:
     status: str
 
 
+class ConnectionChangeBlocked(RuntimeError):
+    """The camera or plug cannot be swapped right now."""
+
+
 class Engine:
     def __init__(
         self,
@@ -313,6 +317,51 @@ class Engine:
         self.catchall.set_reference(self.latest_raw)
         self.log("setup", "Empty-zone reference captured for the catch-all detector")
         return True
+
+    # -- connections -----------------------------------------------------------------------------
+    def replace_source(self, source: FrameSource, label: str) -> None:
+        """Swap the camera live. The new view starts with no detections and no catch-all reference."""
+        with self._state_lock:
+            if self._reset_pending:
+                raise ConnectionChangeBlocked("Wait for power restoration to finish before changing the camera")
+            old, self.source, self.source_label = self.source, source, label
+            if self.mode == "replay":
+                self.mode = "live"
+            self._last_index = -1
+            self.latest_raw = None
+            self._frame_times.clear()
+            self.catchall = None  # A reference from the previous camera cannot explain the new view.
+            self._build_geometry()
+            self._calibration_ok = True
+            self._last_drift_check = -1e9
+            self.drift = 0.0
+            self._last_observation = None
+            self._measured = []
+            self._catchall_objs = []
+            self.camera_info = {"battery_pct": None, "wifi_dbm": None}
+            self._last_info_poll = -1e9
+            reset_perception = getattr(self.perception, "reset", None)
+            if callable(reset_perception):
+                reset_perception()
+        old.close()
+
+    def check_plug_change(self) -> None:
+        """Refuse a plug change while a shutoff is being verified, because that proof belongs to the current plug."""
+        if self._reset_pending or self.sm.state in (State.VERIFYING, State.OFF_UNCONFIRMED):
+            raise ConnectionChangeBlocked("A shutoff is being verified on the current plug. Wait for it to "
+                                          "finish, then change the plug.")
+
+    def replace_switch(self, switch: PowerSwitch) -> None:
+        """Swap the power plug live."""
+        with self._state_lock:
+            self.check_plug_change()
+            old_switch, old_monitor = self.switch, self.plug
+            self.switch, self.plug = switch, PlugMonitor(switch)
+            self._power_history.clear()
+        old_monitor.stop()
+        close = getattr(old_switch, "close", None)
+        if callable(close) and old_switch is not switch:
+            close()
 
     # -- events -----------------------------------------------------------------------------
     def log(self, kind: str, text: str, data: dict | None = None) -> dict:
@@ -613,11 +662,18 @@ class Engine:
         self._last_info_poll = t
         self._workers.submit(self._fetch_camera_info)
 
+    def _camera_http(self) -> dict:
+        """TLS and credentials of the camera currently in use, so a camera changed in the app keeps working."""
+        source = self.source
+        auth = getattr(source, "auth", None)
+        return {"verify": getattr(source, "verify_tls", self.settings.camera_verify_tls), "auth": auth}
+
     def _fetch_camera_info(self) -> None:
-        s = self.settings
         try:
-            r = httpx.get(f"{self._phone_base()}/info.json", verify=s.camera_verify_tls, timeout=3,
-                          auth=(s.camera_user, s.camera_password) if s.camera_user else None)
+            base = self._phone_base()
+            if base is None:
+                return
+            r = httpx.get(f"{base}/info.json", timeout=3, **self._camera_http())
             data = r.json()
             self.camera_info = {"battery_pct": _find_number(data, ("battery",)),
                                 "wifi_dbm": _find_number(data, ("rssi", "signal", "wifi"))}
@@ -625,12 +681,11 @@ class Engine:
             pass
 
     def phone_streaming(self, on: bool) -> bool:
-        base, s = self._phone_base(), self.settings
+        base = self._phone_base()
         if base is None:
             return False
         try:
-            r = httpx.post(f"{base}/control/{'start' if on else 'stop'}", verify=s.camera_verify_tls, timeout=3,
-                           auth=(s.camera_user, s.camera_password) if s.camera_user else None)
+            r = httpx.post(f"{base}/control/{'start' if on else 'stop'}", timeout=3, **self._camera_http())
             return r.status_code < 400
         except httpx.HTTPError:
             return False

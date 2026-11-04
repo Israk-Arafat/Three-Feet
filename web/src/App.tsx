@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { DemoControls } from "./components/DemoControls";
+import { Connections } from "./components/Connections";
 import { HealthBar } from "./components/HealthBar";
 import { HeaterSetup } from "./components/HeaterSetup";
 import { Icon } from "./components/Icon";
@@ -22,11 +23,13 @@ export default function App() {
   const alerts = useAlerts(state, stale);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [setupRevision, setSetupRevision] = useState(0);
   const [demoOpen, setDemoOpen] = useState(false);
   const [aspect, setAspect] = useState(16 / 9);
   const openSetup = useCallback(() => setSetupOpen(true), []);
   const closeSetup = useCallback(() => setSetupOpen(false), []);
+  const closeConnections = useCallback(() => setConnectionsOpen(false), []);
   const handleSaved = useCallback(() => setSetupRevision((v) => v + 1), []);
 
   useEffect(() => {
@@ -39,7 +42,7 @@ export default function App() {
   return (
     <div className="app-shell flex min-h-dvh flex-col gap-3 p-3">
       <header className="flex min-h-14 flex-wrap items-center gap-x-6 gap-y-2 border-b-2 border-ink pb-2 xl:h-14 xl:flex-nowrap">
-        <a href="/" className="flex items-center gap-3 no-underline" aria-label="Three Feet, home">
+        <a href="/" className="flex shrink-0 items-center gap-3 whitespace-nowrap no-underline" aria-label="Three Feet, home">
           <img src="/favicon.svg" width={32} height={32} alt="" />
           <span className="text-xl font-extrabold tracking-[-0.03em]">Three Feet</span>
         </a>
@@ -54,6 +57,10 @@ export default function App() {
               Fault tests
             </button>
           )}
+          <button type="button" className="btn" onClick={() => setConnectionsOpen(true)}>
+            <Icon name="link" size={18} />
+            Camera and plug
+          </button>
           <button type="button" className="btn" onClick={openSetup}>
             <Icon name="settings" size={18} />
             Heater setup
@@ -95,6 +102,11 @@ export default function App() {
       <HealthBar state={state} connected={connected && !stale} onSetup={openSetup} />
       {showDemo && config?.demo && <DemoControls config={config} open={demoOpen} onClose={() => setDemoOpen(false)} />}
       <HeaterSetup open={setupOpen} onClose={closeSetup} onSaved={handleSaved} />
+      <Connections
+        open={connectionsOpen}
+        onClose={closeConnections}
+        heaterOn={live && live.power.reachable ? live.power.on : null}
+      />
     </div>
   );
 }

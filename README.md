@@ -86,12 +86,23 @@ To set up the Cync plug:
 
 The Cync driver uses the unofficial [pycync](https://github.com/Kinachi249/pycync) library through Cync's cloud. Set up the calibration's power-light check: without a meter it is the only independent confirmation.
 
+### Changing the camera or plug from the dashboard
+
+Click **Camera and plug** in the header instead of editing `.env` and restarting.
+
+- **Camera:** enter the stream address (or a webcam number such as `0`), optionally a username and password, then **Test camera** and **Use this camera**. The new camera is opened first and only replaces the old one once a picture arrives, so a wrong address changes nothing.
+- **Plug:** choose a GE Cync plug or the simulated test plug. For Cync you can sign in with your email, password and the emailed code, then pick the plug by name. The password is never stored, only the tokens in `data/cync_token.json`.
+- **Heater on:** if the heater is on (or its state is unknown) the panel warns you and the button reads "…anyway". It never blocks a camera change. A plug change is refused only while a shutoff is being verified, because that proof belongs to the current plug.
+- **After a camera change** the detections and the empty-zone photo are cleared. Check that the danger zone still sits on the heater; redo **Heater setup** if the view moved.
+- Choices are saved to the git-ignored `data/connections.json` (it holds a camera password if you set one). Plain `python -m three_feet.app` starts live and uses them: with nothing saved it starts with "no camera" (and the plug from `PLUG_KIND` in `.env`, `dryrun` by default) until you add them here. Explicit flags win: `--source <address>` beats a saved camera (only `--source phone`, the default, uses it), and `--plug <kind>` beats a saved plug of a different kind. Otherwise the saved choice is used, then `.env`. The simulated scene (`--source sim`) has nothing to change.
+
 ### Dashboard
 
 Build the web UI once (Node 20+), then run the server. Open `http://127.0.0.1:8000`. Add `?demo=1` to show a **Fault tests** button in the header that opens the fault-injection panel.
 
 ```powershell
 cd web; npm install; npm run build; cd ..
+.\.venv\Scripts\python.exe -m three_feet.app                                      # live; set the camera and plug in the dashboard
 .\.venv\Scripts\python.exe -m three_feet.app --source sim --demo     # simulated scene, no hardware or API key
 .\.venv\Scripts\python.exe -m three_feet.app --source phone --plug cync --demo     # live
 .\.venv\Scripts\python.exe -m three_feet.app --source data\photos --demo           # replay photos with real API calls

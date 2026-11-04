@@ -16,6 +16,7 @@ RULES_PATH = REPO_ROOT / "rules" / "heater_rules.json"
 CALIBRATION_PATH = DATA_DIR / "calibration.json"
 MANUALS_DIR = DATA_DIR / "manuals"
 CYNC_TOKEN_PATH = DATA_DIR / "cync_token.json"
+CONNECTIONS_PATH = DATA_DIR / "connections.json"
 
 
 class Settings(BaseSettings):

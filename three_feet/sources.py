@@ -82,6 +82,14 @@ class MjpegHttpSource:
         self._thread.start()
 
     @property
+    def auth(self) -> tuple[str, str] | None:
+        return self._auth
+
+    @property
+    def verify_tls(self) -> bool:
+        return self._verify
+
+    @property
     def healthy(self) -> bool:
         with self._lock:
             latest = self._latest
@@ -139,6 +147,7 @@ class OpenCVSource:
     """Webcam index (e.g. DroidCam over USB), video file, or any URL OpenCV can open."""
 
     def __init__(self, target: int | str) -> None:
+        self.target = target
         self._cap = cv2.VideoCapture(target)
         self._index = 0
         self._last_ok = 0.0
@@ -157,6 +166,18 @@ class OpenCVSource:
 
     def close(self) -> None:
         self._cap.release()
+
+
+class NoCameraSource:
+    """Placeholder until a camera is added in the dashboard: never has a picture, so monitoring reports it as lost."""
+
+    healthy = False
+
+    def read(self) -> Frame | None:
+        return None
+
+    def close(self) -> None:
+        pass
 
 
 class FolderSource:

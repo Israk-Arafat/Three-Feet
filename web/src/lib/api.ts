@@ -1,8 +1,8 @@
-import type { AppConfig, Incident, ManualLink, RuleDraft, RuleInput, SetupState, ViewGeometry } from "../types";
+import type { AppConfig, CameraInput, Connections, CyncDevice, Incident, ManualLink, RuleDraft, RuleInput, SetupState, ViewGeometry } from "../types";
 
-/** A failed request. `links` carries manual links the server tried, when a manual search fails. */
+/** A failed request. `links` carries manual links the server tried; `devices` the Cync plugs to choose from. */
 export class ApiError extends Error {
-  constructor(message: string, readonly links: ManualLink[] = []) {
+  constructor(message: string, readonly links: ManualLink[] = [], readonly devices: CyncDevice[] = []) {
     super(message);
   }
 }
@@ -18,21 +18,28 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       /* not JSON */
     }
     if (typeof detail === "string") throw new ApiError(detail);
-    const d = detail as { message?: string; candidates?: ManualLink[] };
-    if (typeof d?.message === "string") throw new ApiError(d.message, d.candidates ?? []);
+    const d = detail as { message?: string; candidates?: ManualLink[]; devices?: CyncDevice[] };
+    if (typeof d?.message === "string") throw new ApiError(d.message, d.candidates ?? [], d.devices ?? []);
     throw new ApiError(JSON.stringify(detail));
   }
   return res.json() as Promise<T>;
 }
 
-const post = <T>(path: string, body?: unknown) =>
+const post = <T>(path: string, body?: unknown, method = "POST") =>
   request<T>(path, {
-    method: "POST",
+    method,
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
 export const api = {
+  connections: () => request<Connections>("/api/connections"),
+  testCamera: (body: CameraInput) => post<{ ok: boolean; width: number; height: number }>("/api/connections/camera/test", body),
+  setCamera: (body: CameraInput) => post<Connections>("/api/connections/camera", body, "PUT"),
+  setPlug: (body: { kind: string; name: string }) => post<Connections>("/api/connections/plug", body, "PUT"),
+  cyncLogin: (body: { email: string; password: string }) =>
+    post<{ status: "code_required" | "signed_in" }>("/api/connections/cync/login", body),
+  cyncCode: (code: string) => post<{ status: "signed_in" }>("/api/connections/cync/code", { code }),
   setup: () => request<SetupState>("/api/setup"),
   viewGeometry: () => request<ViewGeometry>("/api/view/geometry"),
   saveSetupDimensions: (body: {width_in:number;depth_in:number}) => post<SetupState>("/api/setup/dimensions", body),

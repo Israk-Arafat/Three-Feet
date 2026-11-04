@@ -49,6 +49,7 @@ data/manuals/
 data/calibration.json
 data/heater_setup.json
 data/cync_token.json
+data/connections.json
 data/markers/
 runs/
 web/node_modules/

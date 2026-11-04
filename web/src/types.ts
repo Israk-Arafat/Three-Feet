@@ -137,6 +137,36 @@ export interface ManualLink {
   error?: string;
 }
 
+export interface CyncDevice {
+  name: string;
+  type: string;
+  online: boolean;
+  is_plug: boolean;
+}
+
+export interface Connections {
+  editable: boolean;
+  mode: "live" | "sim" | "replay";
+  /** null when the plug cannot be reached, so the heater's state is unknown. */
+  heater_on: boolean | null;
+  camera: {
+    kind: "url" | "webcam" | "none" | "other";
+    address: string;
+    user: string;
+    has_password: boolean;
+    verify_tls: boolean;
+    healthy: boolean;
+  };
+  plug: { kind: "cync" | "dryrun" | string; name: string; connected: boolean; devices: CyncDevice[]; signed_in: boolean };
+}
+
+export interface CameraInput {
+  address: string;
+  user: string;
+  password?: string;
+  verify_tls: boolean;
+}
+
 /** What the user approves: the four distances plus where they came from. */
 export type RuleInput = Omit<Rule, "approved" | "approved_at" | "default_in">;
 

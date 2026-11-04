@@ -47,18 +47,35 @@ def device_is_on(device: Any) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
+class DeviceChoiceError(RuntimeError):
+    """No device could be chosen; `devices` lists what the account has so a person can pick one."""
+
+    def __init__(self, message: str, devices: list[dict]) -> None:
+        super().__init__(message)
+        self.devices = devices
+
+
+def describe_devices(devices: list) -> list[dict]:
+    return [{"name": getattr(d, "name", "?") or "?", "type": type(d).__name__,
+             "online": bool(getattr(d, "is_online", True)), "is_plug": type(d).__name__ == "CyncPlug"}
+            for d in devices]
+
+
 def pick_device(devices: list, name: str = ""):
     """The device named `name` (case-insensitive), or the only plug on the account."""
     if name:
         matches = [d for d in devices if (getattr(d, "name", "") or "").strip().lower() == name.strip().lower()]
         if not matches:
-            raise RuntimeError(f"No Cync device named {name!r}; found: {[getattr(d, 'name', '?') for d in devices]}")
+            raise DeviceChoiceError(
+                f"No Cync device named {name!r}; found: {[getattr(d, 'name', '?') for d in devices]}",
+                describe_devices(devices))
         return matches[0]
     plugs = [d for d in devices if type(d).__name__ == "CyncPlug"]
     if len(plugs) == 1:
         return plugs[0]
-    raise RuntimeError("Set PLUG_NAME to the plug's name in the Cync app; found: "
-                       f"{[(getattr(d, 'name', '?'), type(d).__name__) for d in devices]}")
+    raise DeviceChoiceError("Set PLUG_NAME to the plug's name in the Cync app; found: "
+                            f"{[(getattr(d, 'name', '?'), type(d).__name__) for d in devices]}",
+                            describe_devices(devices))
 
 
 class CyncPlug:
@@ -116,6 +133,13 @@ class CyncPlug:
 
     def devices(self) -> list:
         return list(self._cync.get_devices()) if self._cync else []
+
+    def select_device(self, name: str) -> None:
+        """Control another plug on the same account without opening a second connection (Cync allows one)."""
+        device = pick_device(self.devices(), name)  # raises before anything changes
+        self._device, self.device_name = device, name
+        self._is_on = device_is_on(device)
+        self._last_poll = 0.0
 
     def close(self) -> None:
         async def _shutdown():
@@ -192,3 +216,85 @@ def _unsupported() -> tuple[type[BaseException], ...]:
         return (UnsupportedCapabilityError,)
     except ImportError:
         return ()
+
+
+class CyncLoginError(RuntimeError):
+    """The Cync sign-in was rejected or could not reach Cync."""
+
+
+class CyncLogin:
+    """Two-step Cync sign-in for the dashboard: email and password, then the code Cync emails.
+
+    The password is used for this one sign-in and never stored; only the tokens are saved.
+    """
+
+    def __init__(self, token_path: Path = CYNC_TOKEN_PATH, timeout_s: float = 30.0) -> None:
+        self.token_path, self.timeout_s = token_path, timeout_s
+        self._auth = None
+        self._session = None
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(target=self._loop.run_forever, name="cync-login", daemon=True)
+        self._thread.start()
+
+    def _run(self, coro):
+        return asyncio.run_coroutine_threadsafe(asyncio.wait_for(coro, self.timeout_s), self._loop).result(
+            timeout=self.timeout_s + 2)
+
+    def start(self, email: str, password: str) -> str:
+        """Returns "signed_in", or "code_required" when Cync emailed a verification code."""
+        try:
+            return self._run(self._start(email, password))
+        except CyncLoginError:
+            raise
+        except Exception as exc:
+            raise CyncLoginError(_login_message(exc)) from exc
+
+    def submit_code(self, code: str) -> None:
+        try:
+            self._run(self._submit(code))
+        except CyncLoginError:
+            raise
+        except Exception as exc:
+            raise CyncLoginError(_login_message(exc)) from exc
+
+    def close(self) -> None:
+        async def _shutdown():
+            if self._session:
+                await self._session.close()
+
+        try:
+            asyncio.run_coroutine_threadsafe(_shutdown(), self._loop).result(timeout=5)
+        except Exception:
+            pass
+        self._loop.call_soon_threadsafe(self._loop.stop)
+
+    async def _start(self, email: str, password: str) -> str:
+        import aiohttp
+        from pycync import Auth
+        from pycync.exceptions import TwoFactorRequiredError
+
+        if self._session is None:
+            self._session = aiohttp.ClientSession()
+        self._auth = Auth(self._session, username=email, password=password)
+        try:
+            await self._auth.login()
+        except TwoFactorRequiredError:
+            return "code_required"
+        save_tokens(self._auth.user, self.token_path)
+        return "signed_in"
+
+    async def _submit(self, code: str) -> None:
+        if self._auth is None:
+            raise CyncLoginError("Sign in with your email and password first.")
+        await self._auth.login(code)
+        save_tokens(self._auth.user, self.token_path)
+
+
+def _login_message(exc: Exception) -> str:
+    text = str(exc)
+    if "CERTIFICATE_VERIFY_FAILED" in text or "Cannot connect to host" in text:
+        return ("Could not reach Cync's servers from this network. A corporate network or security agent is "
+                "intercepting or blocking the connection.")
+    if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+        return "Cync did not answer in time. Try again."
+    return text or type(exc).__name__
