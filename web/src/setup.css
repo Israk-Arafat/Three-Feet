@@ -1,4 +1,4 @@
-.heater-dialog { width: min(1080px, calc(100% - 32px)); max-height: calc(100dvh - 32px); padding: 0; color: var(--color-ink); background: var(--color-paper-3); border: 2px solid var(--color-ink); box-shadow: var(--shadow-card); }
+.heater-dialog { margin: auto; width: min(1080px, calc(100% - 32px)); max-height: calc(100dvh - 32px); padding: 0; color: var(--color-ink); background: var(--color-paper-3); border: 2px solid var(--color-ink); box-shadow: var(--shadow-card); }
 .heater-dialog::backdrop { background: var(--color-ink); opacity: .65; }
 .setup-header { display: flex; justify-content: space-between; gap: 16px; padding: 24px; border-bottom: 2px solid var(--color-ink); }
 .setup-header h2 { font-size: var(--text-xl); }.setup-header p { color: var(--color-muted); font-size: var(--text-sm); margin-top: 6px; }

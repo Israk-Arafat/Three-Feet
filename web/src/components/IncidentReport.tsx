@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { clock } from "../lib/format";
 import type { EventItem, Incident } from "../types";
 
-export function IncidentReport({
+function IncidentReportImpl({
   events,
   openIncident,
   className = "",
@@ -13,7 +13,7 @@ export function IncidentReport({
   className?: string;
 }) {
   const [incident, setIncident] = useState<Incident | null>(null);
-  const lastReportEvent = [...events].reverse().find((e) => e.kind === "report")?.id ?? 0;
+  const lastReportEvent = useMemo(() => events.filter((e) => e.kind === "report").at(-1)?.id ?? 0, [events]);
 
   useEffect(() => {
     if (!lastReportEvent) return;
@@ -50,3 +50,5 @@ export function IncidentReport({
     </section>
   );
 }
+
+export const IncidentReport = memo(IncidentReportImpl);

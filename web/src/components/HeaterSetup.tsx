@@ -16,7 +16,8 @@ export function HeaterSetup({open,onClose,onSaved}:{open:boolean;onClose:()=>voi
   const [zoom,setZoom] = useState(1);
   useEffect(()=>{
     if (!open) { dialog.current?.close(); return; }
-    dialog.current?.showModal();
+    if (!dialog.current?.open) dialog.current?.showModal();
+    setManual(false);setPoints([]);setZoom(1);setError("");
     let active=true;
     api.setup().then(s=>{if(active){setSetup(s);setWidth(String(s.width_in));setDepth(String(s.depth_in));}}).catch(e=>{if(active)setError(e.message);});
     return ()=>{active=false;};
@@ -48,7 +49,7 @@ export function HeaterSetup({open,onClose,onSaved}:{open:boolean;onClose:()=>voi
     }catch(e){setError((e as Error).message);}finally{setBusy(false);}
   };
   const imageUrl=manual||!overlay?setup?.image_url:setup?.overlay_url||setup?.image_url;
-  return <dialog ref={dialog} className="heater-dialog" onCancel={onClose} onClose={onClose} aria-labelledby="heater-setup-title">
+  return <dialog ref={dialog} className="heater-dialog" onCancel={onClose} onClose={onClose} onPointerDown={e=>{if(e.target===e.currentTarget)onClose();}} aria-labelledby="heater-setup-title">
     <header className="setup-header"><div><h2 id="heater-setup-title">Set up your heater</h2><p>Two measurements. One clear view of its footprint.</p></div><button type="button" className="btn btn--icon" onClick={onClose} aria-label="Close heater setup"><Icon name="x"/></button></header>
     <div className="setup-layout">
       <section className="setup-measurements" aria-labelledby="base-size-title">
@@ -58,8 +59,8 @@ export function HeaterSetup({open,onClose,onSaved}:{open:boolean;onClose:()=>voi
           <path d="M65 27h120M65 22v10M185 22v10M205 45v65M200 45h10M200 110h10" fill="none" stroke="var(--color-accent)" strokeWidth="2"/>
           <text x="125" y="17" textAnchor="middle">Width</text><text x="218" y="83" textAnchor="middle" transform="rotate(90 218 83)">Length</text><text x="125" y="135" textAnchor="middle">Front of heater</text>
         </svg>
-        <label className="setup-field">Base width <span>Left to right, in inches</span><input type="number" min="0.01" max="120" step="0.01" value={width} disabled={running} onChange={e=>setWidth(e.target.value)}/></label>
-        <label className="setup-field">Base length <span>Front to back, in inches</span><input type="number" min="0.01" max="120" step="0.01" value={depth} disabled={running} onChange={e=>setDepth(e.target.value)}/></label>
+        <label className="setup-field">Base width <span>Left to right, in inches</span><input type="number" inputMode="decimal" min="0.01" max="120" step="0.01" value={width} disabled={running} onChange={e=>setWidth(e.target.value)}/></label>
+        <label className="setup-field">Base length <span>Front to back, in inches</span><input type="number" inputMode="decimal" min="0.01" max="120" step="0.01" value={depth} disabled={running} onChange={e=>setDepth(e.target.value)}/></label>
         <p className="setup-help">Measure the footprint, not the height. Keep the phone fixed after setup.</p>
         <button type="button" className="btn btn--primary setup-wide" disabled={running} onClick={()=>act("auto")} aria-busy={running}>{running?"Finding the base…":"Find heater base"}</button>
         <p className="setup-source">Muse Spark selects the floor-contact corners.</p>

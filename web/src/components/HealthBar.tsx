@@ -19,7 +19,7 @@ export function HealthBar({ state, connected, onSetup }: { state: StateMessage |
   const [capturing, setCapturing] = useState(false);
   if (!state) {
     return (
-      <footer className="strip h-11">
+      <footer className="strip">
         <div className="text-muted">Connecting to the server.</div>
       </footer>
     );
@@ -55,17 +55,19 @@ export function HealthBar({ state, connected, onSetup }: { state: StateMessage |
   };
 
   return (
-    <footer className="strip min-h-11 overflow-x-auto fit:h-11">
+    <footer className="strip">
       <Cell ok={connected} label="Server" value={connected ? "connected" : "offline"} />
       <Cell ok={camera.healthy} label="Camera" value={cameraValue} />
       <Cell ok={cal.configured && !state.degraded.includes("CALIBRATION_DRIFT")} label="Calibration" value={calValue} />
-      {onSetup && <div><button type="button" className="btn btn--sm" onClick={onSetup}>{cal.configured ? "Edit heater base" : "Set up base"}</button></div>}
+      {onSetup && <div><button type="button" className="btn btn--sm" onClick={onSetup}>{cal.configured ? "Edit heater base" : "Set up heater base"}</button></div>}
       <Cell ok={state.mode === "sim" ? null : a.ok} label="Meta API" value={apiValue} />
-      <Cell
-        ok={spend.last_hour_usd < spend.budget_usd_per_hour}
-        label="Spend"
-        value={`${usd(spend.total_usd)}, ${usd(spend.last_hour_usd)} of ${usd(spend.budget_usd_per_hour)} an hour`}
-      />
+      <div title={`${usd(spend.total_usd)} spent in total`}>
+        <Swatch tone={spend.last_hour_usd < spend.budget_usd_per_hour ? "ok" : "alert"} />
+        <span className="text-muted">Spend</span>
+        <span className={`num font-medium ${spend.last_hour_usd < spend.budget_usd_per_hour ? "text-ink" : "text-state-warn"}`}>
+          {usd(spend.last_hour_usd)} of {usd(spend.budget_usd_per_hour)} this hour
+        </span>
+      </div>
       {state.mode !== "sim" && cal.configured && (
         <div>
           <Swatch tone={cal.reference_set ? "ok" : "watch"} />
@@ -80,9 +82,9 @@ export function HealthBar({ state, connected, onSetup }: { state: StateMessage |
         </div>
       )}
       {a.concepts.length > 0 && state.mode !== "sim" && (
-        <div>
+        <div title={a.concepts.join(", ")}>
           <span className="text-muted">Looking for</span>
-          <span className="font-medium">{a.concepts.join(", ")}</span>
+          <span className="truncate font-medium">{a.concepts.join(", ")}</span>
         </div>
       )}
     </footer>

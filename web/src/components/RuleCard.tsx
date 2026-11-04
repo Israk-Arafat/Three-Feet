@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiError, api } from "../lib/api";
 import type { ManualLink, Rule, RuleDraft, RuleInput } from "../types";
 import { Icon } from "./Icon";
@@ -83,7 +83,7 @@ type Busy = null | "search" | "upload" | "save";
 
 function RuleDialog({ rule, mode, onClose }: { rule: Rule; mode: "find" | "edit"; onClose: () => void }) {
   const fileInput = useRef<HTMLInputElement>(null);
-  const dialog = useRef<HTMLDivElement>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
   const [stage, setStage] = useState<"source" | "review">(mode === "edit" ? "review" : "source");
   const [draft, setDraft] = useState<RuleDraft | null>(null);
   const [values, setValues] = useState<Distances>(() => toDistances(rule));
@@ -94,11 +94,8 @@ function RuleDialog({ rule, mode, onClose }: { rule: Rule; mode: "find" | "edit"
   const [error, setError] = useState<{ message: string; links: ManualLink[] } | null>(null);
 
   useEffect(() => {
-    dialog.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    if (!dialog.current?.open) dialog.current?.showModal();
+  }, []);
 
   useEffect(() => {
     if (busy !== "search") return;
@@ -179,16 +176,14 @@ function RuleDialog({ rule, mode, onClose }: { rule: Rule; mode: "find" | "edit"
   );
 
   return (
-    <div className="fixed inset-0 z-(--z-modal) flex items-center justify-center bg-ink/60 p-6" onClick={onClose}>
-      <div
-        ref={dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="rule-dialog-title"
-        tabIndex={-1}
-        className="max-h-full w-full max-w-2xl space-y-4 overflow-y-auto border-2 border-ink bg-paper-3 p-6 shadow-card outline-none"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <dialog
+      ref={dialog}
+      className="rule-dialog"
+      aria-labelledby="rule-dialog-title"
+      onClose={onClose}
+      onPointerDown={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="space-y-4 p-6">
         {stage === "source" ? (
           <>
             <div className="flex items-baseline justify-between gap-4">
@@ -398,14 +393,12 @@ function RuleDialog({ rule, mode, onClose }: { rule: Rule; mode: "find" | "edit"
           </>
         )}
       </div>
-    </div>
+    </dialog>
   );
 }
 
 export function RuleCard({ rule, className = "" }: { rule: Rule | undefined; className?: string }) {
   const [open, setOpen] = useState<null | "find" | "edit">(null);
-  // Stable, so the dialog doesn't refocus itself (and steal focus from its inputs) on every live update.
-  const close = useCallback(() => setOpen(null), []);
   const note = !rule
     ? undefined
     : rule.source === "manual"
@@ -454,7 +447,7 @@ export function RuleCard({ rule, className = "" }: { rule: Rule | undefined; cla
           </div>
         </div>
       )}
-      {open && rule && <RuleDialog rule={rule} mode={open} onClose={close} />}
+      {open && rule && <RuleDialog rule={rule} mode={open} onClose={() => setOpen(null)} />}
     </Panel>
   );
 }

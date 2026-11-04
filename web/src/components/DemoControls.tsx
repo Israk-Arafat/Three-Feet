@@ -20,9 +20,8 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/** Fault injection for rehearsals and the demo video. Only rendered with ?demo=1 on a --demo server. */
-export function DemoControls({ config }: { config: AppConfig }) {
-  const [open, setOpen] = useState(true);
+/** Fault injection for rehearsals and the demo video. Only rendered with ?demo=1 on a --demo server; the header button opens it. */
+export function DemoControls({ config, open, onClose }: { config: AppConfig; open: boolean; onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [cameraCut, setCameraCut] = useState(false);
   const [apiDown, setApiDown] = useState(false);
@@ -43,22 +42,16 @@ export function DemoControls({ config }: { config: AppConfig }) {
     }
   };
 
-  if (!open) {
-    return (
-      <button type="button" onClick={() => setOpen(true)} className="btn btn--sm fixed bottom-16 right-4 z-(--z-toast) shadow-card">
-        Fault tests
-      </button>
-    );
-  }
+  if (!open) return null;
 
   return (
     <aside
       aria-label="Fault injection"
-      className="fixed bottom-16 right-4 z-(--z-toast) w-[460px] max-w-[calc(100vw-2rem)] border-2 border-ink bg-paper-3 p-4 shadow-card"
+      className="fixed bottom-24 right-4 z-(--z-toast) max-h-[calc(100dvh-8rem)] w-[460px] max-w-[calc(100vw-2rem)] overflow-y-auto border-2 border-ink bg-paper-3 p-4 shadow-card"
     >
       <div className="mb-2 flex items-center justify-between">
         <h2>Fault tests</h2>
-        <button type="button" className="btn btn--sm btn--icon" onClick={() => setOpen(false)} aria-label="Hide fault tests">
+        <button type="button" className="btn btn--sm btn--icon" onClick={onClose} aria-label="Hide fault tests">
           <Icon name="x" size={16} />
         </button>
       </div>

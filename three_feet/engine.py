@@ -515,7 +515,8 @@ class Engine:
         shutoff = next((e for e in inc.events if e["kind"] == "shutoff"), None)
         closest = (shutoff or {}).get("data", {}).get("closest")
         if closest:
-            what = (f"a {closest['label']} came within {closest['distance_in']:.1f} in of "
+            article = "an" if closest["label"][:1].lower() in tuple("aeiou") else "a"
+            what = (f"{article} {closest['label']} came within {closest['distance_in']:.1f} in of "
                     f"the heater's {closest['side']}, where the rule requires {closest['required_in']:.0f} in")
         else:
             what = inc.reason
