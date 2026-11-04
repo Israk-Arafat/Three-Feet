@@ -10,18 +10,16 @@ const TONE: Record<SafetyState, Tone> = {
   CLEAR: "clear",
   WATCH: "watch",
   WARN: "warn",
-  VERIFYING: "verify",
-  OFF_CONFIRMED: "off",
-  OFF_UNCONFIRMED: "alarm",
+  OFF_REQUESTED: "off",
 };
 
 const LOOK: Record<Tone, { icon: IconName; title: string }> = {
   clear: { icon: "check", title: "Zone clear" },
   watch: { icon: "near", title: "Something is near" },
   warn: { icon: "alert", title: "Too close to the heater" },
-  verify: { icon: "power", title: "Power cut, checking" },
-  off: { icon: "power", title: "Heater off, confirmed" },
-  alarm: { icon: "alert", title: "Not confirmed: check the heater" },
+  verify: { icon: "power", title: "Sending power command" },
+  off: { icon: "power", title: "Power off requested" },
+  alarm: { icon: "alert", title: "Power-off request failed" },
   unknown: { icon: "question", title: "Unknown, not safe" },
 };
 
@@ -43,15 +41,18 @@ export function StateBanner({
   const live = state && !stale ? state : null;
   const blind = live ? live.degraded.length > 0 : true;
   const monitoring = live ? ["CLEAR", "WATCH", "WARN"].includes(live.state) : false;
-  const tone: Tone = !live ? "unknown" : live.reset_pending ? "verify" : blind && monitoring ? "unknown" : TONE[live.state];
+  const tone: Tone = !live ? "unknown" : live.reset_pending || live.off_pending ? "verify"
+    : live.off_error && live.state === "OFF_REQUESTED" ? "alarm"
+    : blind && monitoring ? "unknown" : TONE[live.state] ?? "off";
   const look = LOOK[tone];
   const needsSetup = !!live && !live.calibration.configured;
+  const worst = live?.objects[0];
   const title = live?.reset_pending
     ? live.reset_cancelled ? "Cancelling power restoration" : "Turning heater on"
     : !state ? "Connecting to Three Feet"
     : needsSetup && tone === "unknown" ? "Set up your heater"
+    : tone === "watch" && worst?.status === "uncertain" ? "Outside zone, distance uncertain"
     : look.title;
-  const worst = live?.objects[0];
 
   let detail: string;
   if (live?.reset_pending) {
@@ -68,20 +69,17 @@ export function StateBanner({
       : live.api.health_reason ?? capitalize(live.degraded.map(humanFlag).join(", ")) + ".";
   } else if ((tone === "warn" || tone === "watch") && worst) {
     detail = `${capitalize(worst.label)}, ${measurement(worst.distance_in, worst.err_in)} from the ${worst.side}. Needs ${worst.required_in.toFixed(0)} in.`;
+    if (tone === "watch") detail += " Outside the red zone; no shutoff countdown.";
   } else if (tone === "clear") {
     detail = worst
       ? `Closest: ${worst.label}, ${measurement(worst.distance_in, worst.err_in)} from the ${worst.side}.`
       : "Nothing near the heater.";
   } else if (tone === "verify") {
-    detail = `${capitalize(live.reason)}.`;
+    detail = "Sending an OFF command to the plug.";
   } else if (tone === "off") {
-    const first = live.power.metering ? "Power is under 5 W" : "The plug reports off";
-    detail = live.signals.indicator_off ? `${first} and the light is dark.` : `${first}.`;
+    detail = "An OFF command was sent to the plug. Clear the zone before resetting.";
   } else {
-    detail = live.signals.power_off === true
-      ? live.power.metering ? "Power is low, but the camera check has not confirmed shutdown. Check the heater now."
-        : "Plug reports off — independent check unavailable. Check the heater now."
-      : "Shutdown could not be verified after retrying. Check the heater now.";
+    detail = "The OFF command failed after retries. Check the heater now.";
   }
 
   // A background tab shows the verdict, and a warning mark when it needs attention.
@@ -90,10 +88,9 @@ export function StateBanner({
     document.title = state ? `${needsAttention ? "⚠ " : ""}${title} · Three Feet` : "Three Feet: heater clearance monitor";
   }, [state, title, needsAttention]);
 
-  const countLabel = tone === "warn" ? "Power off in" : tone === "verify" ? "Checking" : tone === "unknown" ? "Fail-safe in" : null;
+  const countLabel = tone === "warn" ? "Power off in" : tone === "unknown" ? "Fail-safe in" : null;
   const showCount = live && countLabel && live.countdown_s !== null;
-  const latched = live && (live.state === "OFF_CONFIRMED" || live.state === "OFF_UNCONFIRMED");
-  const signalsPassed = live ? [live.signals.power_off, live.signals.indicator_off].filter((v) => v === true).length : 0;
+  const latched = live?.state === "OFF_REQUESTED";
 
   const onReset = async () => {
     setResetError(null);
@@ -137,7 +134,6 @@ export function StateBanner({
         <p className="sign__detail">{detail}</p>
         {live && <p className="sign__power">
           Plug: {!live.power.reachable ? "unreachable" : live.power.on === null ? "unknown" : live.power.on ? "on" : "reports off"}
-          {" · "}Shutoff checks: {live.indicator_configured ? `${signalsPassed}/2 passed` : "power-light check not configured"}
         </p>}
       </div>
       <div className="sign__side">
@@ -154,14 +150,6 @@ export function StateBanner({
         )}
         {latched && live && (
           <>
-            {live.state === "OFF_CONFIRMED" && (
-              <div className="sign__count plate">
-                <span className="sign__count-label">Checks passed</span>
-                <span className="figure num">
-                  {signalsPassed}/2
-                </span>
-              </div>
-            )}
             <div className="flex flex-col justify-center gap-1">
               <button
                 type="button"

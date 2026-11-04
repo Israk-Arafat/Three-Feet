@@ -14,12 +14,10 @@ export type SafetyState =
   | "CLEAR"
   | "WATCH"
   | "WARN"
-  | "VERIFYING"
-  | "OFF_CONFIRMED"
-  | "OFF_UNCONFIRMED";
+  | "OFF_REQUESTED";
 
 export type DegradedFlag = "CAMERA_LOST" | "CALIBRATION_DRIFT" | "API_DOWN" | "PLUG_UNREACHABLE";
-export type ObjectStatus = "clear" | "watch" | "violation";
+export type ObjectStatus = "clear" | "watch" | "uncertain" | "violation";
 export type Hazard = "high" | "medium" | "low";
 
 export interface ZoneObjectInfo {
@@ -64,6 +62,7 @@ export interface StateMessage {
   type: "state";
   t: number;
   time_zone: string;
+  watch_margin_in: number;
   mode: "live" | "sim" | "replay";
   state: SafetyState;
   banner: string;
@@ -76,8 +75,8 @@ export interface StateMessage {
   objects: ZoneObjectInfo[];
   rule: Rule;
   power: { reachable: boolean; on: boolean | null; watts: number | null; metering: boolean; history: number[]; plug: string };
-  signals: { power_off: boolean | null; indicator_off: boolean | null };
-  indicator_configured: boolean;
+  off_pending: boolean;
+  off_error: string | null;
   camera: { fps: number; healthy: boolean; battery_pct: number | null; wifi_dbm: number | null };
   calibration: {
     configured: boolean;
@@ -93,6 +92,8 @@ export interface StateMessage {
     last_error: string | null;
     health_reason: string | null;
     result_age_s: number | null;
+    verification_age_s?: number | null;
+    local_tracking?: boolean;
     frame_index: number | null;
     concepts: string[];
     spend: Spend;
@@ -114,11 +115,10 @@ export interface Incident {
   started_t: number;
   ended_t: number | null;
   reason: string;
-  outcome: "confirmed" | "unconfirmed" | null;
+  outcome: "requested" | "failed" | null;
   report: string | null;
   report_source: "muse-wonder" | "template" | null;
   events: EventItem[];
-  signals: { power_off: boolean | null; indicator_off: boolean | null } | null;
 }
 
 export interface AppConfig {

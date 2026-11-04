@@ -359,7 +359,7 @@ export function Connections({ open, onClose, heaterOn }: { open: boolean; onClos
               {plugBusy ? "Connecting…" : heaterWarning && plugChanged ? "Use this plug anyway" : "Use this plug"}
             </button>
           </div>
-          <p className="setup-help">A plug cannot change while a shutoff is being verified.</p>
+          <p className="setup-help">Wait for the current power command to finish before changing plugs.</p>
           <Message note={plugNote} />
         </section>
       </div>

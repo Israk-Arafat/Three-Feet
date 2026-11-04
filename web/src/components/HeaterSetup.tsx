@@ -73,6 +73,10 @@ export function HeaterSetup({open,onClose,onSaved}:{open:boolean;onClose:()=>voi
           {setup?.status==="needs_review"&&!manual&&setup.quality&&<details><summary>Why does it need review?</summary><p>{setup.message}</p></details>}
         </div>
         {error && <p className="setup-error" role="alert">{error}</p>}
+        {setup?.quality?.error_pct !== undefined && <p className="setup-help">
+          Estimated distance uncertainty: {setup.quality.error_pct}%.
+          {setup.quality.error_pct >= 30 && " Base-only calibration is imprecise. Use a closer, clearer view of the floor-contact corners and compare distances with a tape measure."}
+        </p>}
         {imageUrl && setup?.image_size ? <>
           {!manual&&setup.overlay_url&&<button type="button" className="btn btn--sm" aria-pressed={overlay} onClick={()=>setOverlay(!overlay)}>{overlay?"Show original photo":"Show base selection"}</button>}
           {!manual&&setup.status==="needs_review"&&setup.corners_px?.length===4&&<button type="button" className="btn btn--sm" onClick={()=>{setPoints(setup.corners_px!.map(p=>[...p]));setManual(true);setError("");}}>Use and edit these corners</button>}

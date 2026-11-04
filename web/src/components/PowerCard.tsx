@@ -1,6 +1,6 @@
 import { watts } from "../lib/format";
 import type { StateMessage } from "../types";
-import { CheckRow, Panel } from "./ui";
+import { Panel } from "./ui";
 
 function Sparkline({ values, max }: { values: number[]; max: number }) {
   if (values.length < 2) return <div className="h-12" />;
@@ -25,10 +25,6 @@ function Sparkline({ values, max }: { values: number[]; max: number }) {
 
 export function PowerCard({ state, className = "" }: { state: StateMessage | null; className?: string }) {
   const p = state?.power;
-  const s = state?.signals;
-  const shutting = state ? ["VERIFYING", "OFF_CONFIRMED", "OFF_UNCONFIRMED"].includes(state.state) : false;
-  const total = 2;
-  const passed = s ? [s.power_off, s.indicator_off].filter((v) => v === true).length : 0;
   const plugNote = p ? `Plug: ${p.plug === "dryrun" ? "simulated" : p.plug}${p.metering ? "" : ", no meter"}` : undefined;
   const metering = p?.metering ?? true;
   const headline = !p?.reachable ? "No reading" : metering ? watts(p.watts) : p.on === null ? "Unknown" : p.on ? "On" : "Off";
@@ -47,23 +43,6 @@ export function PowerCard({ state, className = "" }: { state: StateMessage | nul
             <Sparkline values={p?.history ?? []} max={1600} />
           </div>
         )}
-      </div>
-      <div className="mt-4 border-t border-rule pt-3">
-        <div className="mb-1 flex items-baseline justify-between text-sm">
-          <h3>Shutoff check</h3>
-          <span className="num font-medium text-muted">{shutting ? `${passed} of ${total} passed` : "Runs after a power cut"}</span>
-        </div>
-        <CheckRow
-          value={shutting ? (s?.power_off ?? null) : null}
-          label={metering ? "Power under 5 W, from the plug meter" : "Plug reports off (it has no power meter)"}
-        />
-        <CheckRow
-          value={shutting && state?.indicator_configured ? (s?.indicator_off ?? null) : null}
-          label={state?.indicator_configured ? "Power light dark, from the camera" : "Power light check not set up"}
-        />
-        {state && !state.indicator_configured && <p className="mt-2 text-sm text-state-warn">
-          Independent confirmation unavailable. Calibrate the heater's power light to enable both checks.
-        </p>}
       </div>
     </Panel>
   );

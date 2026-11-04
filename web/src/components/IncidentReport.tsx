@@ -31,7 +31,6 @@ function IncidentReportImpl({
   }, [lastReportEvent, openIncident]);
 
   const note = !incident ? undefined : incident.report_source === "muse-wonder" ? "Written by Muse Wonder" : "Written from the log";
-  const confirmed = incident?.outcome === "confirmed" && incident.signals?.power_off === true && incident.signals?.indicator_off === true;
 
   return (
     <section className={`panel ${className}`}>
@@ -40,15 +39,15 @@ function IncidentReportImpl({
         {note && <span className="panel__note">{note}</span>}
       </header>
       <div className="panel__body flex-1 space-y-3 overflow-y-auto">
-        {openIncident && <p className="font-medium">An incident is open. Checking the shutoff now.</p>}
+        {openIncident && <p className="font-medium">Sending an OFF command to the plug.</p>}
         {!incident ? (
           !openIncident && <p className="text-muted">No shutoffs yet. After each one, Muse Wonder writes up what happened.</p>
         ) : (
           <>
             <div className="flex items-center gap-3 text-sm">
               <span className="num text-muted">{clock(incident.started_t, timeZone)}</span>
-              <span className={`tag ${confirmed ? "tag--ink" : "tag--amber"}`}>
-                {confirmed ? "Shutoff confirmed" : "Not independently confirmed"}
+              <span className={`tag ${incident.outcome === "failed" ? "tag--amber" : "tag--ink"}`}>
+                {incident.outcome === "failed" ? "OFF request failed" : "Power off requested"}
               </span>
             </div>
             <p className="whitespace-pre-line text-base leading-relaxed">{incident.report}</p>

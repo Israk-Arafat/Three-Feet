@@ -4,7 +4,7 @@ import { DEMO, useDemoSnapshot } from "../lib/demo";
 import type { ViewGeometry } from "../types";
 import { Icon } from "./Icon";
 
-function LiveViewImpl({cameraHealthy,simulated,calibrated,setupRevision,aspect,onSetup,onAspect,className=""}:{cameraHealthy:boolean;simulated:boolean;calibrated:boolean;setupRevision:number;aspect:number;onSetup:()=>void;onAspect:(aspect:number)=>void;className?:string}) {
+function LiveViewImpl({cameraHealthy,simulated,calibrated,setupRevision,aspect,onSetup,onAspect,className="",watchMarginIn=2}:{watchMarginIn?:number;cameraHealthy:boolean;simulated:boolean;calibrated:boolean;setupRevision:number;aspect:number;onSetup:()=>void;onAspect:(aspect:number)=>void;className?:string}) {
   const demoFrame=useDemoSnapshot().frame;
   const [attempt,setAttempt]=useState(0),[failed,setFailed]=useState(false);
   const [layers,setLayers]=useState(()=>{try{const p=JSON.parse(localStorage.getItem("three-feet.layers")??"null");if(p&&[p.zone,p.base,p.objects].every(v=>typeof v==="boolean"))return p as {zone:boolean;base:boolean;objects:boolean};}catch{}return {zone:true,base:false,objects:true};});
@@ -36,7 +36,7 @@ function LiveViewImpl({cameraHealthy,simulated,calibrated,setupRevision,aspect,o
       {calibrated
         ?<ul className="camera-legend" aria-label="Overlay key">
           {layers.zone&&<li><i className="legend-line bg-state-warn"/>Danger zone</li>}
-          {layers.zone&&<li><i className="legend-line bg-accent-2"/>Watch margin</li>}
+          {layers.zone&&<li><i className="legend-line bg-accent-2"/>Watch band ({watchMarginIn} in)</li>}
           {layers.base&&<li><i className="legend-line legend-line--base"/>Heater base</li>}
           {!layers.zone&&!layers.base&&<li>{layers.objects?"Objects only":"Camera only"}</li>}
         </ul>

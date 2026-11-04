@@ -38,10 +38,12 @@ export function HealthBar({ state, connected, onSetup }: { state: StateMessage |
   const calValue = !cal.configured
     ? "not calibrated"
     : cal.method === "heater"
-    ? "heater base"
+    ? `heater base${cal.distance_err_pct !== null ? ` · ${cal.distance_err_pct}% distance uncertainty` : ""}`
     : `error ${cal.rms_in?.toFixed(2) ?? "?"} in, ${cal.drift_px !== null ? `drift ${cal.drift_px.toFixed(1)} px` : "markers hidden"}`;
   const apiValue = state.mode === "sim" ? "simulated" : a.ok
-    ? `SAM ${a.sam_latency_s?.toFixed(2) ?? "?"} s · result ${a.result_age_s?.toFixed(1) ?? "?"} s old`
+    ? a.local_tracking
+      ? `Tracking locally; SAM checked ${a.verification_age_s?.toFixed(0) ?? "?"} s ago`
+      : `SAM ${a.sam_latency_s?.toFixed(2) ?? "?"} s · result ${a.result_age_s?.toFixed(1) ?? "?"} s old`
     : a.health_reason ?? "unavailable";
 
   const setReference = async () => {
@@ -60,7 +62,8 @@ export function HealthBar({ state, connected, onSetup }: { state: StateMessage |
     <footer className="strip">
       <Cell ok={connected} label="Server" value={connected ? "connected" : "offline"} />
       <Cell ok={camera.healthy} label="Camera" value={cameraValue} />
-      <Cell ok={cal.configured && !state.degraded.includes("CALIBRATION_DRIFT")} label="Calibration" value={calValue} />
+      <Cell ok={!cal.configured || state.degraded.includes("CALIBRATION_DRIFT") ? false
+        : (cal.distance_err_pct ?? 0) >= 30 ? null : true} label="Calibration" value={calValue} />
       {onSetup && <div><button type="button" className="btn btn--sm" onClick={onSetup}>{cal.configured ? "Edit heater base" : "Set up heater base"}</button></div>}
       <Cell ok={state.mode === "sim" ? null : a.ok} label="Meta API" value={apiValue} />
       <div title={`${usd(spend.total_usd)} spent in total`}>

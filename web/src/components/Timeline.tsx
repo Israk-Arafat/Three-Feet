@@ -6,8 +6,8 @@ import { Swatch, type Tone } from "./ui";
 const KIND: Record<string, { tone: Tone; label: string }> = {
   warn: { tone: "violation", label: "Too close" },
   watch: { tone: "watch", label: "Near" },
-  shutoff: { tone: "off", label: "Power cut" },
-  confirmed: { tone: "off", label: "Confirmed" },
+  shutoff: { tone: "off", label: "Power-off request" },
+  off_request: { tone: "off", label: "OFF request" },
   alarm: { tone: "alert", label: "Alarm" },
   degraded: { tone: "alert", label: "Degraded" },
   fault: { tone: "watch", label: "Fault test" },
@@ -27,12 +27,10 @@ const STATE_WORDS: Record<string, string> = {
   CLEAR: "Clear",
   WATCH: "Near",
   WARN: "Too close",
-  VERIFYING: "Checking shutoff",
-  OFF_CONFIRMED: "Off, confirmed",
-  OFF_UNCONFIRMED: "Off, not confirmed",
+  OFF_REQUESTED: "Power off requested",
 };
 
-/** State changes are logged as "WARN → VERIFYING: reason"; show them in the dashboard's words. */
+/** Show state changes in the dashboard's words. */
 function describe(e: EventItem): string {
   const from = e.data?.from, to = e.data?.to;
   if (e.kind !== "state" || typeof from !== "string" || typeof to !== "string") return e.text;

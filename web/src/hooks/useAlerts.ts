@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { capitalize, humanFlag, spokenInches } from "../lib/format";
 import type { SafetyState, StateMessage } from "../types";
 
-type Pattern = "chirp" | "warn" | "confirm" | "siren" | "degraded";
+type Pattern = "chirp" | "warn" | "siren" | "degraded";
 
 class Beeper {
   private ctx: AudioContext | null = null;
@@ -34,10 +34,6 @@ class Beeper {
         break;
       case "warn":
         [0, 0.22, 0.44].forEach((s) => this.tone(1046, s, 0.15, "square", 0.12));
-        break;
-      case "confirm":
-        this.tone(660, 0, 0.18);
-        this.tone(990, 0.2, 0.3);
         break;
       case "siren":
         for (let i = 0; i < 4; i++) {
@@ -98,6 +94,7 @@ export function useAlerts(state: StateMessage | null, stale: boolean) {
     degraded: [],
     stale: false,
   });
+  const previousOffError = useRef<string | null>(null);
 
   const enable = useCallback(() => {
     beeper.current.unlock();
@@ -158,18 +155,9 @@ export function useAlerts(state: StateMessage | null, stale: boolean) {
         say(msg);
         notify("Three Feet: object too close", msg);
       }
-      if (cur === "OFF_CONFIRMED") {
-        beeper.current.play("confirm");
-        const n = [state.signals.power_off, state.signals.indicator_off].filter(Boolean).length;
-        const first = state.power.metering ? "power" : "the plug";
-        const msg = n === 2 ? `Heater is off. Confirmed by ${first} and light.` : `Heater is off. Confirmed by ${first}.`;
-        say(msg);
-        notify("Three Feet: heater off", msg);
-      }
-      if (cur === "OFF_UNCONFIRMED") {
-        beeper.current.play("siren");
-        say("Shutoff not confirmed. Check the heater now.");
-        notify("Three Feet: CHECK THE HEATER", "Shutoff could not be confirmed.");
+      if (cur === "OFF_REQUESTED") {
+        say("Power off requested.");
+        notify("Three Feet: power off requested", "An OFF command was requested for the plug.");
       }
     }
     if (newFlags.length) {
@@ -180,13 +168,24 @@ export function useAlerts(state: StateMessage | null, stale: boolean) {
   }, [state, stale, enabled]);
 
   // Repeating patterns while the situation persists
+  useEffect(() => {
+    const error = state?.state === "OFF_REQUESTED" && !state.off_pending ? state.off_error : null;
+    const changed = error && error !== previousOffError.current;
+    previousOffError.current = error ?? null;
+    if (enabled && changed) {
+      beeper.current.play("siren");
+      say("Power off request failed. Check the heater now.");
+      notify("Three Feet: power off request failed", "Check the heater now.");
+    }
+  }, [state, enabled]);
+
   const situation = stale ? "stale" : state?.state;
   useEffect(() => {
     if (!enabled) return;
-    if (situation !== "WARN" && situation !== "OFF_UNCONFIRMED") return;
+    if (situation !== "WARN") return;
     const id = window.setInterval(
-      () => beeper.current.play(situation === "WARN" ? "warn" : "siren"),
-      situation === "WARN" ? 2500 : 2200,
+      () => beeper.current.play("warn"),
+      2500,
     );
     return () => window.clearInterval(id);
   }, [situation, enabled]);

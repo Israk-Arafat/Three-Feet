@@ -37,7 +37,12 @@ export function ObjectsCard({ state, className = "" }: { state: StateMessage | n
               <span className="num text-lg">± {worst.err_in.toFixed(1)} in</span>
             </div>
           </div>
-          <p className="text-sm text-muted">The clearance check uses the lower end of this estimated range.</p>
+          <p className={`text-sm ${worst.status === "uncertain" ? "text-state-warn" : "text-muted"}`}>
+            {worst.status === "violation" ? "The detected object overlaps the red zone."
+              : worst.status === "uncertain" ? "Outside the red zone, but its estimated range crosses the edge. No shutoff countdown."
+              : worst.status === "watch" ? "Just outside the red zone. No shutoff countdown."
+              : "Outside the red zone and its watch band. No shutoff countdown."}
+          </p>
           {!state?.api.ok && worst.source !== "catchall" && <p className="text-sm text-state-warn">Last model observation; detection is degraded.</p>}
           <p className="text-base">
             From the {worst.side}. The rule needs <b className="font-extrabold">{worst.required_in.toFixed(0)} in</b>.

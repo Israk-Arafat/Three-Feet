@@ -98,6 +98,7 @@ export default function App() {
 
       <main className="layout" data-orientation={aspect < 1 ? "portrait" : "landscape"}>
         <LiveView
+          watchMarginIn={state?.watch_margin_in ?? 2}
           className="area-video w-full self-start fit:self-stretch"
           cameraHealthy={!stale && (state?.camera.healthy ?? false)}
           simulated={simulated}
