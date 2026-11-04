@@ -51,7 +51,8 @@ HAZARD_SCHEMA = {
 INVENTORY_PROMPT = (
     "This is an overhead camera view of a space heater. The red outline is its clearance zone. "
     "List the physical objects that are inside or near the red outline, excluding the heater itself, "
-    "people, and the floor. Each phrase must be a short concrete noun phrase that an image segmenter "
+    "its power cord, any other cords or cables, people, the floor, walls, baseboards, trim, outlets, "
+    "switches, doors and windows. Each phrase must be a short concrete noun phrase that an image segmenter "
     "can find, such as 'fleece blanket' or 'cardboard box'. Do not use positions, negation, or lists "
     "inside a phrase."
 )

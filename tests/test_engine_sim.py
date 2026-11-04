@@ -3,7 +3,6 @@
 import threading
 
 import pytest
-import cv2
 import numpy as np
 
 from three_feet.config import Settings
@@ -11,7 +10,7 @@ from three_feet.engine import Engine
 from three_feet.perception.wonder import ClearanceRule
 from three_feet.safety.actuator import DryRunPlug
 from three_feet.sim import SimPerception, SimSource, SimWorld
-from three_feet.engine import is_heater_cord
+from three_feet.engine import is_ignored_item
 from three_feet.perception.tracking import PerceivedObject
 
 
@@ -58,18 +57,17 @@ def kinds(engine):
     return [e["kind"] for e in engine.events_since(0)]
 
 
-def test_only_attached_power_cord_is_excluded(rig, monkeypatch):
+def test_cords_and_room_fixtures_are_never_measured(rig, monkeypatch):
     engine, _, plug, tick = rig
-    polygon = engine.cmap.heater_polygon_px()
-    attached = np.zeros(engine.cmap.slack.shape, np.uint8)
-    cv2.fillPoly(attached, [polygon], 1)
-    cord = PerceivedObject("cord", "power cord", attached.astype(bool), source="sam")
-    assert is_heater_cord(cord, polygon)
-    assert not is_heater_cord(PerceivedObject("blanket", "blanket", cord.mask, source="sam"), polygon)
-    distant = np.zeros_like(attached, dtype=bool)
-    distant[10:20, 10:20] = True
-    assert not is_heater_cord(PerceivedObject("other", "power cord", distant, source="sam"), polygon)
-    assert not is_heater_cord(PerceivedObject("unknown", "unknown object", cord.mask, source="catchall"), polygon)
+    mask = np.zeros(engine.cmap.slack.shape, bool)
+    mask[10:20, 10:20] = True
+    for label in ("power cord", "Extension-Cord", "white baseboard", "wall outlet"):
+        assert is_ignored_item(PerceivedObject("x", label, mask, source="sam")), label
+    for label in ("blanket", "towel", "fleece blanket", "cardboard box", "person"):
+        assert not is_ignored_item(PerceivedObject("x", label, mask, source="sam")), label
+    assert not is_ignored_item(PerceivedObject("u1", "unknown object", mask, source="catchall"))
+    assert not is_ignored_item(PerceivedObject("c", "power cord", mask, source="catchall"))
+    cord = PerceivedObject("cord", "power cord", np.ones_like(mask), source="sam")
     monkeypatch.setattr(engine.perception, "current", lambda: [cord])
     assert tick().state.value == "CLEAR"
     assert tick(15).state.value == "CLEAR" and plug.off_commands == 0

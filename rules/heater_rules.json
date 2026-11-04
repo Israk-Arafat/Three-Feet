@@ -1,0 +1,14 @@
+{
+  "front_in": 28.0,
+  "back_in": 28.0,
+  "left_in": 28.0,
+  "right_in": 28.0,
+  "source": "user",
+  "quote": "",
+  "page": null,
+  "heater_model": "",
+  "confidence": 0.0,
+  "approved": true,
+  "approved_at": "2026-11-04T05:44:50.588653+00:00",
+  "manual_url": ""
+}

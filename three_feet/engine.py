@@ -43,18 +43,18 @@ from .safety.verifier import IndicatorProbe
 from .sources import FrameSource, MjpegHttpSource
 
 PERSON_LABELS = {"person", "people", "man", "woman", "child", "human"}
-HEATER_CORD_LABELS = {"power cord", "heater cord", "heater power cord", "electrical cord", "power cable", "heater cable"}
+# A heater always has a cord, and walls and trim are part of the room: neither is something placed near the heater.
+CORD_WORDS = {"cord", "cords", "cable", "cables", "wire", "wires"}
+FIXTURE_WORDS = {"wall", "walls", "drywall", "baseboard", "baseboards", "skirting", "molding", "moulding", "trim",
+                 "outlet", "outlets", "socket", "sockets", "switch", "door", "doors", "doorframe", "window",
+                 "windows", "windowsill", "ceiling"}
 
 
-def is_heater_cord(obj: PerceivedObject, heater_polygon: np.ndarray) -> bool:
-    """Exclude a cord only when its detected mask reaches the heater's footprint."""
-    label = " ".join(obj.label.lower().replace("-", " ").split())
-    if obj.source != "sam" or label not in HEATER_CORD_LABELS or not obj.mask.any():
+def is_ignored_item(obj: PerceivedObject) -> bool:
+    """Cords and fixed room fixtures are never measured. Only named SAM detections qualify, never catch-all blobs."""
+    if obj.source != "sam":
         return False
-    region = np.zeros(obj.mask.shape, np.uint8)
-    cv2.fillPoly(region, [heater_polygon.astype(np.int32)], 1)
-    region = cv2.dilate(region, np.ones((81, 81), np.uint8))
-    return bool(np.any(obj.mask & region.astype(bool)))
+    return bool(set(obj.label.lower().replace("-", " ").split()) & (CORD_WORDS | FIXTURE_WORDS))
 
 
 class Perception(Protocol):
@@ -374,7 +374,7 @@ class Engine:
                 ]
             measured = []
             for o in [*perceived, *self._catchall_objs]:
-                if is_heater_cord(o, art[2]):
+                if is_ignored_item(o):
                     continue
                 m = cmap.measure(o.mask)
                 if m is not None:
