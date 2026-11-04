@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
-import { capitalize, humanFlag } from "../lib/format";
+import { capitalize, humanFlag, measurement } from "../lib/format";
 import type { SafetyState, StateMessage } from "../types";
 import { Icon, type IconName } from "./Icon";
 
@@ -65,12 +65,12 @@ export function StateBanner({
   } else if (tone === "unknown") {
     detail = needsSetup
       ? "Add the base dimensions to map its danger zone."
-      : capitalize(live.degraded.map(humanFlag).join(", ")) + ".";
+      : live.api.health_reason ?? capitalize(live.degraded.map(humanFlag).join(", ")) + ".";
   } else if ((tone === "warn" || tone === "watch") && worst) {
-    detail = `${capitalize(worst.label)}, ${worst.distance_in.toFixed(1)} in from the ${worst.side}. Needs ${worst.required_in.toFixed(0)} in.`;
+    detail = `${capitalize(worst.label)}, ${measurement(worst.distance_in, worst.err_in)} from the ${worst.side}. Needs ${worst.required_in.toFixed(0)} in.`;
   } else if (tone === "clear") {
     detail = worst
-      ? `Closest: ${worst.label}, ${worst.distance_in.toFixed(1)} in from the ${worst.side}.`
+      ? `Closest: ${worst.label}, ${measurement(worst.distance_in, worst.err_in)} from the ${worst.side}.`
       : "Nothing near the heater.";
   } else if (tone === "verify") {
     detail = `${capitalize(live.reason)}.`;
@@ -78,7 +78,10 @@ export function StateBanner({
     const first = live.power.metering ? "Power is under 5 W" : "The plug reports off";
     detail = live.signals.indicator_off ? `${first} and the light is dark.` : `${first}.`;
   } else {
-    detail = "Power did not drop after retrying. Go to the heater now.";
+    detail = live.signals.power_off === true
+      ? live.power.metering ? "Power is low, but the camera check has not confirmed shutdown. Check the heater now."
+        : "Plug reports off — independent check unavailable. Check the heater now."
+      : "Shutdown could not be verified after retrying. Check the heater now.";
   }
 
   // A background tab shows the verdict, and a warning mark when it needs attention.
@@ -124,7 +127,7 @@ export function StateBanner({
   }
 
   return (
-    <section className="sign fit:h-28" data-tone={tone} aria-label="Heater safety status">
+    <section className="sign" data-tone={tone} aria-label="Heater safety status">
       <span className="sign__mark">
         <Icon name={look.icon} size={44} strokeWidth={2.5} />
       </span>
@@ -132,6 +135,10 @@ export function StateBanner({
       <div className="min-w-0" role="status" aria-live={needsAttention ? "assertive" : "polite"} aria-atomic="true">
         <h1 className="sign__title">{title}</h1>
         <p className="sign__detail">{detail}</p>
+        {live && <p className="sign__power">
+          Plug: {!live.power.reachable ? "unreachable" : live.power.on === null ? "unknown" : live.power.on ? "on" : "reports off"}
+          {" · "}Shutoff checks: {live.indicator_configured ? `${signalsPassed}/2 passed` : "power-light check not configured"}
+        </p>}
       </div>
       <div className="sign__side">
         {needsSetup && onSetup && (
@@ -151,7 +158,7 @@ export function StateBanner({
               <div className="sign__count plate">
                 <span className="sign__count-label">Checks passed</span>
                 <span className="figure num">
-                  {signalsPassed}/{live.indicator_configured ? 2 : 1}
+                  {signalsPassed}/2
                 </span>
               </div>
             )}

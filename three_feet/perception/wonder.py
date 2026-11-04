@@ -7,6 +7,7 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from openai import OpenAI
 
@@ -119,12 +120,21 @@ class WonderClient:
 
     def incident_report(self, events: list[dict], rule: ClearanceRule) -> str:
         """Plain-language explanation of one shutoff incident from the event log."""
+        zone = get_settings().display_timezone
+        local_events = [
+            {**{k: v for k, v in event.items() if k != "t"},
+             "time_local": datetime.fromtimestamp(event["t"], ZoneInfo(zone)).isoformat()}
+            for event in events
+        ]
         prompt = (
             "You write short incident reports for Three Feet, a space-heater clearance monitor. Using only "
             "the events below, explain in 3-5 sentences what was detected, how close it was versus the "
             "rule (cite the manual page if present), what action was taken, and whether shutoff was "
-            "independently confirmed. Use local times. Do not invent facts.\n\n"
-            f"RULE: {rule.to_json()}\n\nEVENTS (JSONL):\n" + "\n".join(json.dumps(e) for e in events)
+            "independently confirmed. Confirmation requires BOTH power_off=true and indicator_off=true "
+            "on a confirmed event; a plug report alone never proves independent confirmation. "
+            f"Use the provided time_local values in {zone}, including their UTC offset; do not convert "
+            "or infer a timezone. Do not invent facts.\n\n"
+            f"RULE: {rule.to_json()}\n\nEVENTS (JSONL):\n" + "\n".join(json.dumps(e) for e in local_events)
         )
         response = self.client.chat.completions.create(
             model=self.model, messages=[{"role": "user", "content": prompt}]

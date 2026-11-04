@@ -42,7 +42,7 @@ function describe(e: EventItem): string {
 }
 
 /** The event board: newest first, one row per event, like a departure board. */
-function TimelineImpl({ events, className = "" }: { events: EventItem[]; className?: string }) {
+function TimelineImpl({ events, timeZone, className = "" }: { events: EventItem[]; timeZone?: string; className?: string }) {
   const items = useMemo(() => events.slice(-MAX_ROWS).reverse(), [events]);
   return (
     <section className={`panel ${className}`}>
@@ -67,7 +67,7 @@ function TimelineImpl({ events, className = "" }: { events: EventItem[]; classNa
                 const k = KIND[e.kind] ?? KIND.system;
                 return (
                   <tr key={e.id} className={e.kind === "state" ? "text-muted" : ""}>
-                    <td className="num whitespace-nowrap text-muted">{clock(e.t)}</td>
+                    <td className="num whitespace-nowrap text-muted">{clock(e.t, timeZone)}</td>
                     <td className="whitespace-nowrap font-medium">
                       <span className="inline-flex items-center gap-2">
                         <Swatch tone={k.tone} />

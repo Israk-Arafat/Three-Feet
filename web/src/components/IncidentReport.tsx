@@ -6,10 +6,12 @@ import type { EventItem, Incident } from "../types";
 function IncidentReportImpl({
   events,
   openIncident,
+  timeZone,
   className = "",
 }: {
   events: EventItem[];
   openIncident: string | null;
+  timeZone?: string;
   className?: string;
 }) {
   const [incident, setIncident] = useState<Incident | null>(null);
@@ -29,6 +31,7 @@ function IncidentReportImpl({
   }, [lastReportEvent, openIncident]);
 
   const note = !incident ? undefined : incident.report_source === "muse-wonder" ? "Written by Muse Wonder" : "Written from the log";
+  const confirmed = incident?.outcome === "confirmed" && incident.signals?.power_off === true && incident.signals?.indicator_off === true;
 
   return (
     <section className={`panel ${className}`}>
@@ -43,9 +46,9 @@ function IncidentReportImpl({
         ) : (
           <>
             <div className="flex items-center gap-3 text-sm">
-              <span className="num text-muted">{clock(incident.started_t)}</span>
-              <span className={`tag ${incident.outcome === "confirmed" ? "tag--ink" : "tag--amber"}`}>
-                {incident.outcome === "confirmed" ? "Shutoff confirmed" : "Not confirmed"}
+              <span className="num text-muted">{clock(incident.started_t, timeZone)}</span>
+              <span className={`tag ${confirmed ? "tag--ink" : "tag--amber"}`}>
+                {confirmed ? "Shutoff confirmed" : "Not independently confirmed"}
               </span>
             </div>
             <p className="whitespace-pre-line text-base leading-relaxed">{incident.report}</p>

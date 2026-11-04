@@ -14,6 +14,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -131,12 +132,15 @@ class Incident:
     ended_t: float | None = None
     report: str | None = None
     report_source: str | None = None  # muse-wonder | template
+    signals: dict | None = None
+    report_generation: int = 0
 
     def to_dict(self) -> dict:
         return {
             "id": self.id, "started_t": self.started_t, "ended_t": self.ended_t, "reason": self.reason,
             "outcome": self.outcome, "report": self.report, "report_source": self.report_source,
             "events": self.events,
+            "signals": self.signals,
         }
 
 
@@ -172,7 +176,7 @@ class Engine:
         self.wonder, self.meter = wonder, meter or CostMeter(settings.budget_usd_per_hour)
         self.mode, self.demo, self.source_label = mode, demo, source_label
         self.clock, self.tick_hz = clock, tick_hz
-        self.sm = SafetyStateMachine(replace(SafetyConfig.from_settings(settings), require_indicator=probe is not None))
+        self.sm = SafetyStateMachine(SafetyConfig.from_settings(settings))
         self._state_lock = threading.Lock()
         self._reset_lock = threading.Lock()
         self._reset_pending = False
@@ -224,7 +228,7 @@ class Engine:
         self.log("system", f"Three Feet started ({mode}{', demo controls on' if demo else ''})",
                  {"source": source_label, "plug": getattr(switch, "name", "?")})
         if probe is None:
-            self.log("system", "Heater power-light check not configured: shutoff confirmation uses watts only (1/2)")
+            self.log("system", "Power-light check not configured: independent shutoff confirmation is unavailable")
 
     # -- lifecycle ----------------------------------------------------------------------
     def start(self) -> None:
@@ -283,7 +287,6 @@ class Engine:
             self.calib = calib
             self.probe = (IndicatorProbe(calib.indicator_roi, calib.indicator_threshold)
                           if calib.indicator_roi and calib.indicator_threshold is not None else None)
-            self.sm.cfg = replace(self.sm.cfg, require_indicator=self.probe is not None)
             self.catchall = None  # A reference from the previous view cannot explain this floor plane.
             self._build_geometry()
             self._calibration_ok = True
@@ -365,7 +368,7 @@ class Engine:
             perceived = self.perception.current()
             if catchall is not None and catchall.reference is not None:
                 explained = np.zeros(cmap.slack.shape, bool)
-                for o in perceived:
+                for o in perceived if self.perception.api_ok else []:
                     explained |= o.mask
                 self._catchall_objs = [
                     PerceivedObject(f"u{i}", "unknown object", d.mask, "high",
@@ -378,7 +381,6 @@ class Engine:
                     continue
                 m = cmap.measure(o.mask)
                 if m is not None:
-                    m = replace(m, err_in=0.0)
                     measured.append(MeasuredObject(o, m, m.status(self.settings.watch_margin_in)))
             self._measured = measured
         elif not camera_ok or not calibration_ok:
@@ -452,15 +454,15 @@ class Engine:
             elif action is Action.CONFIRMED:
                 n = sum(1 for v in d.signals.values() if v)
                 if self.plug.status.metering:
-                    text = f"Heater OFF — confirmed by {n}/2 independent signals"
+                    text = f"Heater OFF — confirmed by {n}/2 signals (plug meter and camera light)"
                 else:
                     text = ("Heater OFF — plug reports off and the camera sees the power light dark"
-                            if d.signals.get("indicator_off") else "Heater OFF — plug reports off (no power meter)")
-                self.log("confirmed", text, {"signals": d.signals})
-                self._close_incident("confirmed")
+                            if d.signals.get("indicator_off") else "Plug reports off — shutoff not independently confirmed")
+                event = self.log("confirmed", text, {"signals": d.signals})
+                self._close_incident("confirmed", d.signals, event)
             elif action is Action.ALARM:
                 self.log("alarm", "Shutoff NOT confirmed after retries — check the heater now", {"signals": d.signals})
-                self._close_incident("unconfirmed")
+                self._close_incident("unconfirmed", d.signals)
             elif action is Action.DEGRADED_ALERT:
                 self.log("degraded", "Degraded: " + ", ".join(d.degraded).replace("_", " ").lower(),
                          {"degraded": list(d.degraded)})
@@ -491,27 +493,43 @@ class Engine:
         except Exception as exc:
             self.log("error", f"Plug command failed: {type(exc).__name__}: {exc}")
 
-    def _close_incident(self, outcome: str) -> None:
+    def _close_incident(self, outcome: str, signals: dict, confirmation_event: dict | None = None) -> None:
         inc = self._open_incident
         if inc is None:
-            return
-        inc.outcome, inc.ended_t = outcome, self.clock()
+            # A missing signal may arrive after retries have already produced an unconfirmed report.
+            inc = next(reversed(self.incidents.values()), None)
+            if outcome != "confirmed" or inc is None or inc.outcome != "unconfirmed":
+                return
+            if confirmation_event is not None:
+                inc.events.append(confirmation_event)
+        with self._events_lock:
+            inc.outcome, inc.ended_t = outcome, self.clock()
+            inc.signals = dict(signals)
+            inc.report_generation += 1
+            inc.report = inc.report_source = None
         self._open_incident = None
         self._workers.submit(self._write_report, inc)
 
     def _write_report(self, inc: Incident) -> None:
+        with self._events_lock:
+            snapshot = replace(inc, events=list(inc.events))
+        report, source = None, None
         if self.wonder is not None:
             try:
-                inc.report = self.wonder.incident_report(inc.events, self.rule)
-                inc.report_source = "muse-wonder"
+                report = self.wonder.incident_report(snapshot.events, self.rule)
+                source = "muse-wonder"
             except Exception as exc:
                 self.log("error", f"Incident report failed: {type(exc).__name__}: {exc}")
-        if inc.report is None:
-            inc.report, inc.report_source = self._template_report(inc), "template"
-        self.log("report", f"Incident report ready ({inc.report_source})", {"incident": inc.id})
+        if not report:
+            report, source = self._template_report(snapshot), "template"
+        with self._events_lock:
+            if inc.report_generation != snapshot.report_generation:
+                return  # A slow, older report must not overwrite late confirmation evidence.
+            inc.report, inc.report_source = report, source
+        self.log("report", f"Incident report ready ({source})", {"incident": inc.id})
 
     def _template_report(self, inc: Incident) -> str:
-        when = datetime.fromtimestamp(inc.started_t).strftime("%I:%M:%S %p").lstrip("0")
+        when = datetime.fromtimestamp(inc.started_t, ZoneInfo(self.settings.display_timezone)).strftime("%I:%M:%S %p %Z").lstrip("0")
         shutoff = next((e for e in inc.events if e["kind"] == "shutoff"), None)
         closest = (shutoff or {}).get("data", {}).get("closest")
         if closest:
@@ -700,7 +718,7 @@ class Engine:
             canvas = (canvas * 0.35).astype(np.uint8)
             put_label(canvas, "No camera feed: status unknown", (40, canvas.shape[0] // 2), PAPER_BGR, 1.2,
                       bg=STATUS_BGR["violation"])
-        stamp = datetime.fromtimestamp(d.t).strftime("%H:%M:%S")
+        stamp = datetime.fromtimestamp(d.t, ZoneInfo(self.settings.display_timezone)).strftime("%H:%M:%S %Z")
         text = f"{stamp}  {d.banner.replace('_', ' ')}" + ("  [SIMULATED]" if self.mode == "sim" else "")
         (tw, _), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
         put_label(canvas, text, (canvas.shape[1] - tw - 20, 34), scale=0.7)
@@ -715,6 +733,7 @@ class Engine:
         return {
             "type": "state",
             "t": d.t,
+            "time_zone": self.settings.display_timezone,
             "mode": self.mode,
             "state": d.state.value,
             "banner": d.banner,
@@ -751,6 +770,9 @@ class Engine:
                             "reference_set": bool(self.catchall and self.catchall.reference is not None)},
             "api": {"ok": self.perception.api_ok, "sam_latency_s": self.perception.last_sam_latency_s,
                     "last_error": self.perception.last_error, "concepts": list(self.perception.concepts),
+                    "health_reason": getattr(self.perception, "health_reason", None),
+                    "result_age_s": getattr(self.perception, "result_age_s", None),
+                    "frame_index": getattr(self.perception, "last_frame_index", None),
                     "spend": self.meter.snapshot()},
             "open_incident": self._open_incident.id if self._open_incident else None,
         }

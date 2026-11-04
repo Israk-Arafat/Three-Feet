@@ -1,8 +1,10 @@
 export const inches = (v: number | null | undefined, digits = 1) =>
   v === null || v === undefined || !Number.isFinite(v) ? "—" : `${v.toFixed(digits)} in`;
 
-export const clock = (t: number) =>
-  new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+export const clock = (t: number, timeZone = "America/New_York") =>
+  new Date(t * 1000).toLocaleTimeString([], { timeZone, hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short" });
+
+export const measurement = (distance: number, error: number) => `${distance.toFixed(1)} ± ${error.toFixed(1)} in`;
 
 export const watts = (w: number | null | undefined) =>
   w === null || w === undefined ? "—" : `${Math.round(w).toLocaleString()} W`;

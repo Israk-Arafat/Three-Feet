@@ -2,14 +2,46 @@
 
 An experimental space-heater safety helper for the **Meta Global AI Developer Hackathon**. Three Feet aims to detect objects in a heater's clearance zone, explain the concern, attempt to turn the heater off, and report whether shutdown was independently confirmed.
 
-**Build plan:** See [PLAN.md](./PLAN.md) for the current architecture, schedule, validation protocol, and demo script. It uses one Android phone camera and a power-metering smart plug. The dashboard plan is in [FRONTEND_PLAN.md](./FRONTEND_PLAN.md).
+![Simulator dashboard showing distance uncertainty and two-check shutdown confirmation](docs/dashboard-simulator.jpg)
 
-**Status:** Work in progress. Written during the hackathon so far:
+*Synthetic simulator scene; this screenshot is not a physical validation trial.*
+
+**Implemented system:** One fixed Android phone camera, a reviewed floor-plane calibration, Meta SAM 3.1 and Muse Spark perception, a deterministic safety loop, and a GE Cync smart plug. Cync reports relay state; it has **no power meter**. Independent shutoff confirmation requires both the plug reporting off and a calibrated camera observation of the heater's power light going dark.
+
+```mermaid
+flowchart LR
+  Camera[Fixed phone camera] --> Geometry[Floor calibration and clearance geometry]
+  Camera --> Models[SAM 3.1 and Muse Spark]
+  Models --> Geometry
+  Geometry --> Safety[Deterministic safety loop]
+  Safety --> Plug[Cync plug OFF request]
+  Plug --> Verification[Plug report plus camera power-light check]
+  Verification --> Dashboard[Live dashboard and incident evidence]
+  Manual[Manual PDF] --> Wonder[Muse Wonder plus human review]
+  Wonder --> Safety
+```
+
+The dashboard shows estimated distances with uncertainty, clearance provenance, shutdown countdowns, separate plug and camera evidence, and incident reports. The simulator exercises the same geometry, safety loop, verification, and UI with synthetic observations. Run it without hardware using the dashboard quickstart below.
+
+**Validation:** No physical accuracy or reliability results are claimed here. Record trials and generate a report using [VALIDATION.md](./VALIDATION.md). A demo video and physical measurements must be supplied before presenting the project as empirically validated.
+
+**Build history:** [PLAN.md](./PLAN.md) and [FRONTEND_PLAN.md](./FRONTEND_PLAN.md) document the original design; proposals there may differ from the implemented system described here.
+
+**Status:** Research prototype. Implemented during the hackathon:
 - the Python core: frame sources, Meta API clients, floor-plane geometry, the safety state machine, and plug control
 - the live engine and FastAPI server
 - a React dashboard, with a simulator for demos without hardware
 
 It has unit and end-to-end tests but has **not yet been validated** against real measurements or real shutoffs. This is a research prototype, not a fire-safety device; do not rely on it to prevent fires or replace manufacturer instructions, smoke alarms, or safe heater practices.
+
+### Monitoring and verification behavior
+
+- Confirmation always needs **two checks**, including when the light probe is missing. Without it, shutdown stays unconfirmed, OFF requests are retried, and a person is alerted to check the heater. Configure the probe with `scripts/calibrate_light.py`.
+- Measurement uncertainty is an engineering estimate, not a statistical confidence interval. Decisions use the conservative lower end of the distance range.
+- Model health requires successful segmentation of a recent frame. By default, results expire after 5 seconds and idle scenes refresh every 2 seconds. Slow calls do not refresh the timestamp of their input frames. Budget exhaustion pauses model calls and marks monitoring degraded; local catch-all detection still runs. Reset is refused while model health is degraded.
+- `DEFAULT_CLEARANCE_IN` is the active fallback and suggestion floor, not a guarantee of the manufacturer's requirement. Approved user distances remain explicitly labeled as custom, including warnings below the active default. Finding a manual requires human review before its values take effect.
+- Dashboard and report times use `DISPLAY_TIMEZONE` (default `America/New_York`) with timezone labels or UTC offsets.
+- Backend tests isolate settings and saved rules from your local `.env`. Run `python -m pytest`; frontend validation is `npm run build` in `web/`.
 
 ## Quickstart (development)
 

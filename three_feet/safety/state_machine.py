@@ -68,7 +68,6 @@ class SafetyConfig:
     off_power_w: float = 5.0
     verify_timeout_s: float = 5.0
     max_off_retries: int = 2
-    require_indicator: bool = True  # need both watts AND indicator light to confirm
 
     @classmethod
     def from_settings(cls, s) -> "SafetyConfig":
@@ -262,7 +261,7 @@ class SafetyStateMachine:
     def _confirmed(self, signals: dict) -> bool:
         if signals["power_off"] is not True:
             return False
-        return signals["indicator_off"] is True or not self.cfg.require_indicator
+        return signals["indicator_off"] is True
 
     @staticmethod
     def _degraded(obs: Observation) -> list[str]:

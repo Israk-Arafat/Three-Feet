@@ -63,6 +63,7 @@ export interface Spend {
 export interface StateMessage {
   type: "state";
   t: number;
+  time_zone: string;
   mode: "live" | "sim" | "replay";
   state: SafetyState;
   banner: string;
@@ -90,6 +91,9 @@ export interface StateMessage {
     ok: boolean;
     sam_latency_s: number | null;
     last_error: string | null;
+    health_reason: string | null;
+    result_age_s: number | null;
+    frame_index: number | null;
     concepts: string[];
     spend: Spend;
   };
@@ -114,6 +118,7 @@ export interface Incident {
   report: string | null;
   report_source: "muse-wonder" | "template" | null;
   events: EventItem[];
+  signals: { power_off: boolean | null; indicator_off: boolean | null } | null;
 }
 
 export interface AppConfig {

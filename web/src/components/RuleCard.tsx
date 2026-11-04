@@ -397,7 +397,7 @@ function RuleDialog({ rule, mode, onClose }: { rule: Rule; mode: "find" | "edit"
   );
 }
 
-export function RuleCard({ rule, className = "" }: { rule: Rule | undefined; className?: string }) {
+export function RuleCard({ rule, timeZone = "America/New_York", className = "" }: { rule: Rule | undefined; timeZone?: string; className?: string }) {
   const [open, setOpen] = useState<null | "find" | "edit">(null);
   const note = !rule
     ? undefined
@@ -414,6 +414,8 @@ export function RuleCard({ rule, className = "" }: { rule: Rule | undefined; cla
       ) : (
         <div className="space-y-2">
           <Sides r={rule} />
+          <p className="text-sm text-muted">Active default: {rule.default_in} in. {rule.source === "user" ? "Custom distances selected by you." : rule.source === "manual" ? "Distances reviewed from the manual." : "Default distances apply."}</p>
+          {rule.manual_url && <a href={rule.manual_url} target="_blank" rel="noreferrer" className="text-sm underline">View source manual{rule.page ? `, page ${rule.page}` : ""}</a>}
           {rule.source === "default" ? (
             <p className="text-sm text-muted">
               {rule.default_in} in on every side until you find the manual or set your own.
@@ -433,7 +435,7 @@ export function RuleCard({ rule, className = "" }: { rule: Rule | undefined; cla
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className={`text-sm font-medium ${rule.approved ? "text-ink" : "text-muted"}`}>
               {rule.approved
-                ? `Approved ${rule.approved_at ? new Date(rule.approved_at).toLocaleString([], { hour: "numeric", minute: "2-digit", month: "short", day: "numeric" }) : ""}`
+                ? `Approved ${rule.approved_at ? new Date(rule.approved_at).toLocaleString([], { timeZone, timeZoneName: "short", hour: "numeric", minute: "2-digit", month: "short", day: "numeric" }) : ""}`
                 : "Not reviewed yet"}
             </span>
             <span className="flex gap-2">

@@ -1,4 +1,4 @@
-import { capitalize } from "../lib/format";
+import { capitalize, measurement } from "../lib/format";
 import type { StateMessage } from "../types";
 import { HazardTag, Panel, StatusWord } from "./ui";
 
@@ -32,11 +32,13 @@ export function ObjectsCard({ state, className = "" }: { state: StateMessage | n
             <StatusWord status={worst.status} />
           </div>
           <div className="plate px-4 py-3">
-            <div className="flex items-baseline gap-3">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <span className="figure num text-5xl leading-none">{worst.distance_in.toFixed(1)}</span>
-              <span className="text-lg">in</span>
+              <span className="num text-lg">± {worst.err_in.toFixed(1)} in</span>
             </div>
           </div>
+          <p className="text-sm text-muted">The clearance check uses the lower end of this estimated range.</p>
+          {!state?.api.ok && worst.source !== "catchall" && <p className="text-sm text-state-warn">Last model observation; detection is degraded.</p>}
           <p className="text-base">
             From the {worst.side}. The rule needs <b className="font-extrabold">{worst.required_in.toFixed(0)} in</b>.
           </p>
@@ -60,7 +62,7 @@ export function ObjectsCard({ state, className = "" }: { state: StateMessage | n
             {others.map((o) => (
               <tr key={o.track_id}>
                 <td>{capitalize(o.label)}</td>
-                <td className="num text-right">{o.distance_in.toFixed(1)} in</td>
+                <td className="num text-right">{measurement(o.distance_in, o.err_in)}</td>
                 <td>
                   <StatusWord status={o.status} />
                 </td>

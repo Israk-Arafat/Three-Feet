@@ -87,9 +87,9 @@ export default function App() {
         />
         <ObjectsCard state={live} className="area-objects" />
         <PowerCard state={live} className="area-power" />
-        <Timeline events={events} className="area-log" />
-        <IncidentReport events={events} openIncident={live?.open_incident ?? null} className="area-incident" />
-        <RuleCard rule={state?.rule} className="area-rule" />
+        <Timeline events={events} timeZone={state?.time_zone} className="area-log" />
+        <IncidentReport events={events} timeZone={state?.time_zone} openIncident={live?.open_incident ?? null} className="area-incident" />
+        <RuleCard rule={state?.rule} timeZone={state?.time_zone} className="area-rule" />
       </main>
 
       <HealthBar state={state} connected={connected && !stale} onSetup={openSetup} />

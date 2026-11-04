@@ -1,4 +1,5 @@
 .app-shell { max-width: 1680px; margin-inline: auto; }
+.sign__power { margin-top: 6px; font-size: var(--text-xs); font-weight: 500; }
 
 /* Camera panel */
 .camera-panel { min-width: 0; }

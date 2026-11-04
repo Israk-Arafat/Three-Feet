@@ -1,6 +1,7 @@
 """End-to-end: simulated scene -> real calibration, geometry, state machine, plug, verification, incidents."""
 
 import threading
+from dataclasses import replace
 
 import pytest
 import numpy as np
@@ -303,7 +304,8 @@ def test_calibration_drift_detected(rig):
     assert "CALIBRATION_DRIFT" in d.degraded
 
 
-def test_relay_only_plug_end_to_end():
+@pytest.mark.parametrize("light_configured", [True, False])
+def test_relay_only_plug_end_to_end(light_configured):
     """A plug without a meter (Cync): shutoff confirmed by the relay report plus the camera's power light."""
     from three_feet.safety.actuator import PlugStatus
 
@@ -317,7 +319,8 @@ def test_relay_only_plug_end_to_end():
     world = SimWorld(plug, clock=clock, speed_in_s=1000)
     calib = world.calibration()
     engine = Engine(SimSource(world), SimPerception(world), plug, Settings(_env_file=None), calib=calib,
-                    rule=ClearanceRule(36, 36, 36, 36, "default"), probe=world.indicator_probe(calib),
+                    rule=ClearanceRule(36, 36, 36, 36, "default"),
+                    probe=world.indicator_probe(calib) if light_configured else None,
                     mode="sim", clock=clock, events_dir=None)
     engine._workers.shutdown()
     engine._workers = SyncExecutor()
@@ -336,7 +339,101 @@ def test_relay_only_plug_end_to_end():
         assert "PLUG_UNREACHABLE" not in engine.state_message["degraded"]
         assert tick(10).state.value == "VERIFYING"
         d = tick()
-        assert d.state.value == "OFF_CONFIRMED"
-        assert any("plug reports off" in e["text"] for e in engine.events_since(0))
+        if light_configured:
+            assert d.state.value == "OFF_CONFIRMED"
+            assert any("plug reports off" in e["text"] for e in engine.events_since(0))
+        else:
+            for _ in range(3):
+                d = tick(5)
+            assert d.state.value == "OFF_UNCONFIRMED"
+            assert d.signals == {"power_off": True, "indicator_off": None}
+            assert "confirmed" not in kinds(engine)
+            assert next(iter(engine.incidents.values())).outcome == "unconfirmed"
     finally:
         engine.stop()
+
+
+def test_missing_light_probe_never_confirms_and_reports_missing_evidence(rig):
+    engine, world, _, tick = rig
+    engine.probe = None
+    world.place("blanket", "near")
+    assert tick().state.value == "WARN"
+    assert tick(10).state.value == "VERIFYING"
+    for _ in range(3):
+        decision = tick(5)
+    assert decision.state.value == "OFF_UNCONFIRMED"
+    assert decision.signals == {"power_off": True, "indicator_off": None}
+    assert "confirmed" not in kinds(engine)
+    incident = next(iter(engine.incidents.values()))
+    assert incident.outcome == "unconfirmed" and incident.signals["indicator_off"] is None
+    assert "could NOT be confirmed" in incident.report
+    # Late evidence updates the same incident instead of leaving its badge/report contradictory.
+    engine.probe = world.indicator_probe(engine.calib)
+    assert tick().state.value == "OFF_CONFIRMED"
+    assert incident.outcome == "confirmed" and incident.signals["indicator_off"] is True
+    assert "confirmed by independent signals" in incident.report
+    assert incident.events[-1]["kind"] == "confirmed"
+
+
+def test_slow_old_report_cannot_overwrite_new_confirmation(rig):
+    from types import SimpleNamespace
+    from three_feet.engine import Incident
+
+    engine, _, _, _ = rig
+    started, release = threading.Event(), threading.Event()
+
+    def slow_report(*args):
+        started.set()
+        release.wait(3)
+        return "Old unconfirmed report"
+
+    engine.wonder = SimpleNamespace(incident_report=slow_report)
+    incident = Incident("test", engine.clock(), "test", outcome="unconfirmed")
+    thread = threading.Thread(target=engine._write_report, args=(incident,), daemon=True)
+    thread.start()
+    try:
+        assert started.wait(1)
+        with engine._events_lock:
+            incident.report_generation += 1
+            incident.outcome = "confirmed"
+            incident.report = "New confirmed report"
+    finally:
+        release.set()
+        thread.join(2)
+    assert not thread.is_alive()
+    assert incident.report == "New confirmed report"
+
+
+def test_live_measurement_keeps_uncertainty_for_boundary_decisions(rig, monkeypatch):
+    engine, world, _, tick = rig
+    original = engine.cmap.measure
+
+    def boundary_measurement(mask):
+        m = original(mask)
+        return replace(m, distance_in=m.required_in + .5, slack_in=.5, err_in=1)
+
+    monkeypatch.setattr(engine.cmap, "measure", boundary_measurement)
+    world.place("blanket", "near")
+    assert tick().state.value == "WARN"
+    obj = engine.state_message["objects"][0]
+    assert obj["err_in"] == 1 and obj["status"] == "violation"
+    assert obj["distance_in"] > obj["required_in"]
+
+
+@pytest.mark.parametrize("reason", ["stale", "budget", "failed"])
+def test_reset_refuses_unhealthy_model_results_with_a_fresh_camera(rig, reason):
+    from three_feet.perception.meta_client import CostMeter
+    from three_feet.perception.pipeline import MetaPerception
+
+    engine, _, plug, _ = shutoff_then_clear(rig)
+    meter = CostMeter(budget_usd_per_hour=1)
+    perception = MetaPerception(None, None, meter, clock=engine.clock)
+    perception.last_frame_ts = engine.clock() - (6 if reason == "stale" else 0)
+    perception.last_success_at = engine.clock()
+    if reason == "budget":
+        meter.add("test", 1)
+    elif reason == "failed":
+        perception._segmentation_error = "API call failed"
+    engine.perception = perception
+    assert not engine.reset()
+    assert plug.on_commands == 0

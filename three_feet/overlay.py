@@ -52,5 +52,5 @@ def draw_measured(img: np.ndarray, mask: np.ndarray, label: str, m: Measurement 
         return
     cv2.line(img, m.closest_px, m.heater_px, color, 3, cv2.LINE_AA)
     cv2.rectangle(img, (m.closest_px[0] - 5, m.closest_px[1] - 5), (m.closest_px[0] + 5, m.closest_px[1] + 5), color, -1)
-    put_label(img, f"{label} {m.distance_in:.1f} in ({m.side}, needs {m.required_in:.0f})",
+    put_label(img, f"{label} {m.distance_in:.1f} +/- {m.err_in:.1f} in ({m.side}, needs {m.required_in:.0f})",
               anchor, text, scale=0.75, bg=color)

@@ -27,7 +27,7 @@ export function PowerCard({ state, className = "" }: { state: StateMessage | nul
   const p = state?.power;
   const s = state?.signals;
   const shutting = state ? ["VERIFYING", "OFF_CONFIRMED", "OFF_UNCONFIRMED"].includes(state.state) : false;
-  const total = state?.indicator_configured ? 2 : 1;
+  const total = 2;
   const passed = s ? [s.power_off, s.indicator_off].filter((v) => v === true).length : 0;
   const plugNote = p ? `Plug: ${p.plug === "dryrun" ? "simulated" : p.plug}${p.metering ? "" : ", no meter"}` : undefined;
   const metering = p?.metering ?? true;
@@ -61,6 +61,9 @@ export function PowerCard({ state, className = "" }: { state: StateMessage | nul
           value={shutting && state?.indicator_configured ? (s?.indicator_off ?? null) : null}
           label={state?.indicator_configured ? "Power light dark, from the camera" : "Power light check not set up"}
         />
+        {state && !state.indicator_configured && <p className="mt-2 text-sm text-state-warn">
+          Independent confirmation unavailable. Calibrate the heater's power light to enable both checks.
+        </p>}
       </div>
     </Panel>
   );

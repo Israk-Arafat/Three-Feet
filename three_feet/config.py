@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -27,6 +29,18 @@ class Settings(BaseSettings):
     spark_model: str = "muse-spark-1.3"
     wonder_model: str = "muse-wonder-1.0"
     api_timeout_s: float = 30.0
+    perception_max_age_s: float = Field(default=5.0, gt=0)
+    perception_idle_refresh_s: float = Field(default=2.0, gt=0)
+    display_timezone: str = "America/New_York"
+
+    @field_validator("display_timezone")
+    @classmethod
+    def valid_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (KeyError, ValueError) as exc:
+            raise ValueError("DISPLAY_TIMEZONE must be an IANA timezone") from exc
+        return value
 
     camera_url: str = ""
     camera_user: str = ""

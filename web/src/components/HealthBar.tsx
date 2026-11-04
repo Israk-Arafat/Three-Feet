@@ -40,7 +40,9 @@ export function HealthBar({ state, connected, onSetup }: { state: StateMessage |
     : cal.method === "heater"
     ? "heater base"
     : `error ${cal.rms_in?.toFixed(2) ?? "?"} in, ${cal.drift_px !== null ? `drift ${cal.drift_px.toFixed(1)} px` : "markers hidden"}`;
-  const apiValue = state.mode === "sim" ? "simulated" : a.ok ? `SAM ${a.sam_latency_s?.toFixed(2) ?? "?"} s` : "unavailable";
+  const apiValue = state.mode === "sim" ? "simulated" : a.ok
+    ? `SAM ${a.sam_latency_s?.toFixed(2) ?? "?"} s · result ${a.result_age_s?.toFixed(1) ?? "?"} s old`
+    : a.health_reason ?? "unavailable";
 
   const setReference = async () => {
     setCapturing(true);
