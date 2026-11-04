@@ -34,7 +34,7 @@ On macOS/Linux, activate with `source .venv/bin/activate` and copy the settings 
 1. Set `MODEL_API_KEY` in `.env`, install the optional dependencies required by your plug driver, and run `python -m three_feet_app.app`.
 2. Open **Camera and plug** to connect a camera and select a supported power adapter.
 3. Use **Heater setup** to measure the base and review its floor-contact corners. Keep the camera fixed after calibration.
-4. Review **Clearance rule**, then enable alerts. Find or upload the heater's manual to review its required distances.
+4. Review **Clearance rule**, then enable alerts and allow browser notifications. While the tab is hidden or the window minimized, you get one notification per warning, saying the heater will turn off in 10 seconds. Find or upload the heater's manual to review its required distances.
 
 Camera inputs include USB webcams, HTTP(S) MJPEG streams, video files, and photo folders. Power control uses the [PowerSwitch interface](three_feet_app/safety/actuator.py); device support depends on the installed driver, with a simulated adapter included for testing.
 

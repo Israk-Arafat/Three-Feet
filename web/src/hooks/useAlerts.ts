@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { capitalize, humanFlag, spokenInches } from "../lib/format";
-import type { SafetyState, StateMessage } from "../types";
+import { AlertPolicy, type AlertPattern } from "../lib/alertPolicy";
+import { WarningNotifier } from "../lib/warningNotifier";
+import type { StateMessage } from "../types";
 
-type Pattern = "chirp" | "warn" | "siren" | "degraded";
 
 class Beeper {
   private ctx: AudioContext | null = null;
@@ -12,7 +12,7 @@ class Beeper {
     if (this.ctx.state === "suspended") void this.ctx.resume();
   }
 
-  private tone(freq: number, start: number, dur: number, type: OscillatorType = "sine", gain = 0.18) {
+  private tone(freq: number, start: number, dur: number, type: OscillatorType = "sine", gain = 0.07) {
     if (!this.ctx) return;
     const osc = this.ctx.createOscillator();
     const amp = this.ctx.createGain();
@@ -27,13 +27,10 @@ class Beeper {
     osc.stop(t0 + dur + 0.02);
   }
 
-  play(p: Pattern) {
+  play(p: AlertPattern) {
     switch (p) {
-      case "chirp":
-        this.tone(880, 0, 0.12);
-        break;
       case "warn":
-        [0, 0.22, 0.44].forEach((s) => this.tone(1046, s, 0.15, "square", 0.12));
+        [0, 0.22].forEach((s) => this.tone(1046, s, 0.12, "sine", 0.07));
         break;
       case "siren":
         for (let i = 0; i < 4; i++) {
@@ -49,18 +46,22 @@ class Beeper {
   }
 }
 
-function say(text: string) {
+function say(text: string, interrupt = false) {
   if (!("speechSynthesis" in window)) return;
-  window.speechSynthesis.cancel();
+  if (interrupt) window.speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.rate = 1.02;
+  u.volume = 0.7;
   window.speechSynthesis.speak(u);
 }
 
 function notify(title: string, body: string) {
-  if ("Notification" in window && Notification.permission === "granted" && document.hidden) {
-    new Notification(title, { body, tag: "three-feet" });
-  }
+  if (!("Notification" in window) || Notification.permission !== "granted" || !document.hidden) return;
+  const note = new Notification(title, { body, tag: "three-feet-warning", requireInteraction: true });
+  note.onclick = () => {
+    window.focus();
+    note.close();
+  };
 }
 
 const STORE_KEY = "three-feet.alerts";
@@ -89,12 +90,11 @@ export function useAlerts(state: StateMessage | null, stale: boolean) {
   const [enabled, setEnabled] = useState(false);
   const [paused, setPaused] = useState(remembered);
   const beeper = useRef(new Beeper());
-  const prev = useRef<{ state: SafetyState | null; degraded: string[]; stale: boolean }>({
-    state: null,
-    degraded: [],
-    stale: false,
-  });
-  const previousOffError = useRef<string | null>(null);
+  const policy = useRef(new AlertPolicy());
+  const notifier = useRef(new WarningNotifier());
+  const voicePriority = useRef(0);
+  const latest = useRef({ state, stale });
+  latest.current = { state, stale };
 
   const enable = useCallback(() => {
     beeper.current.unlock();
@@ -102,11 +102,12 @@ export function useAlerts(state: StateMessage | null, stale: boolean) {
     remember(true);
     setPaused(false);
     setEnabled(true);
-    say("Alerts on.");
+    // Enabling alerts should not queue a greeting ahead of an actual hazard.
   }, []);
 
   const disable = useCallback(() => {
     window.speechSynthesis?.cancel();
+    voicePriority.current = 0;
     remember(false);
     setPaused(false);
     setEnabled(false);
@@ -129,66 +130,41 @@ export function useAlerts(state: StateMessage | null, stale: boolean) {
     };
   }, [paused]);
 
-  // Transitions
+  // Notifications need no audio unlock, so they stay armed after a reload while alerts are `paused`.
   useEffect(() => {
-    if (!state) return;
-    const p = prev.current;
-    const cur = state.state;
-    const newFlags = state.degraded.filter((f) => !p.degraded.includes(f));
-    prev.current = { state: cur, degraded: state.degraded, stale };
-    if (!enabled || p.state === null) return;
+    if (!enabled && !paused) return;
+    const check = () => {
+      const { state: current, stale: isStale } = latest.current;
+      const notice = notifier.current.next(current, isStale);
+      if (notice) notify(notice.title, notice.body);
+    };
+    check();
+    const timer = window.setInterval(check, 250);
+    return () => window.clearInterval(timer);
+  }, [enabled, paused]);
 
-    if (stale && !p.stale) {
-      beeper.current.play("degraded");
-      say("Connection to Three Feet lost. Status unknown.");
-      return;
-    }
-    if (cur !== p.state) {
-      const worst = state.objects[0];
-      if (cur === "WATCH") beeper.current.play("chirp");
-      if (cur === "WARN" && worst) {
-        beeper.current.play("warn");
-        const secs = state.countdown_s !== null ? Math.ceil(state.countdown_s) : null;
-        const msg = `${capitalize(worst.label)} is ${spokenInches(worst.distance_in)} from the heater.${
-          secs ? ` Turning off in ${secs} seconds.` : ""
-        }`;
-        say(msg);
-        notify("Three Feet: object too close", msg);
-      }
-      if (cur === "OFF_REQUESTED") {
-        say("Power off requested.");
-        notify("Three Feet: power off requested", "An OFF command was requested for the plug.");
-      }
-    }
-    if (newFlags.length) {
-      beeper.current.play("degraded");
-      say(`${capitalize(humanFlag(newFlags[0]))}. Status unknown.`);
-      notify("Three Feet: status unknown", newFlags.map(humanFlag).join(", "));
-    }
-  }, [state, stale, enabled]);
-
-  // Repeating patterns while the situation persists
-  useEffect(() => {
-    const error = state?.state === "OFF_REQUESTED" && !state.off_pending ? state.off_error : null;
-    const changed = error && error !== previousOffError.current;
-    previousOffError.current = error ?? null;
-    if (enabled && changed) {
-      beeper.current.play("siren");
-      say("Power off request failed. Check the heater now.");
-      notify("Three Feet: power off request failed", "Check the heater now.");
-    }
-  }, [state, enabled]);
-
-  const situation = stale ? "stale" : state?.state;
   useEffect(() => {
     if (!enabled) return;
-    if (situation !== "WARN") return;
-    const id = window.setInterval(
-      () => beeper.current.play("warn"),
-      2500,
-    );
-    return () => window.clearInterval(id);
-  }, [situation, enabled]);
+    const check = () => {
+      const { state: current, stale: isStale } = latest.current;
+      if (!current) return;
+      const voice = window.speechSynthesis;
+      const busy = !!voice && (voice.speaking || voice.pending);
+      const announcement = policy.current.next(current, isStale, performance.now(),
+        busy ? voicePriority.current + 1 : 0);
+      if (!announcement) return;
+      voicePriority.current = announcement.priority;
+      if (announcement.pattern) beeper.current.play(announcement.pattern);
+      say(announcement.message, busy);
+    };
+    check();
+    const timer = window.setInterval(check, 250);
+    return () => {
+      window.clearInterval(timer);
+      window.speechSynthesis?.cancel();
+      voicePriority.current = 0;
+    };
+  }, [enabled]);
 
   return { enabled, paused, enable, disable };
 }
