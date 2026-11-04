@@ -1,6 +1,6 @@
 """Generate printable ArUco markers (DICT_4X4_50): one letter page per marker, as PNGs and one PDF.
 
-    python tools/print_markers.py --ids 0 1 2 3 --size-in 4
+    python scripts/print_markers.py --ids 0 1 2 3 --size-in 4
 
 Print data/markers/aruco_markers.pdf at "Actual size" (100%, not "Fit"), then measure the 1-inch bar on
 each page to confirm the printer did not scale it.
