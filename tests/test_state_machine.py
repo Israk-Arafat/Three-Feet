@@ -135,6 +135,32 @@ def test_pending_model_response_resets_elapsed_dwell():
     assert sm.step(obs(19, blanket(-10))).state is State.WARN
 
 
+def test_confident_known_track_keeps_dwell_during_unrelated_scene_rechecks():
+    sm = SafetyStateMachine(CFG)
+    known = ZoneObject("blanket", "blanket", -10, 1, model_verified=True)
+    pending = ZoneObject("movement", "unclassified movement", -5, 1, awaiting_model=True)
+    assert sm.step(obs(0, known)).countdown_s == 10
+    for t in (2, 4, 6, 8):
+        d = sm.step(obs(t, known, pending, api=False))
+        assert d.state is State.WARN and d.countdown_s == 10 - t
+    assert Action.TURN_OFF in sm.step(obs(10, known, pending, api=False)).actions
+
+
+def test_untrusted_mask_cannot_use_verified_identity_to_start_dwell():
+    sm = SafetyStateMachine(CFG)
+    obj = ZoneObject("blanket", "blanket", -10, 1, awaiting_model=True, model_verified=True)
+    for t in (0, 10, 100):
+        d = sm.step(obs(t, obj, api=False))
+        assert d.countdown_s is None and Action.TURN_OFF not in d.actions
+
+
+def test_unrelated_scene_recheck_preserves_known_hazard_dwell():
+    sm = SafetyStateMachine(CFG)
+    known = ZoneObject("chair", "chair", -10, 1, hazard="low", model_verified=True)
+    assert sm.step(obs(0, known)).countdown_s == 60
+    assert sm.step(obs(9, known, api=False)).countdown_s == 51
+
+
 def test_off_request_is_immediate_and_has_no_confirmation_countdown():
     sm = SafetyStateMachine(CFG)
     d = drive_to_shutoff(sm)

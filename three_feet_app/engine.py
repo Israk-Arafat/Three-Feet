@@ -381,6 +381,12 @@ class Engine:
             return [e for e in self._events if e["id"] > last_id][-limit:]
 
     # -- main tick ----------------------------------------------------------------------------
+    def _track_ready(self, obj: PerceivedObject) -> bool:
+        if obj.source == "catchall" or obj.misses > 0 or obj.extra.get("awaiting_model"):
+            return False
+        check = getattr(self.perception, "is_track_ready", None)
+        return check(obj) if callable(check) else self.perception.api_ok
+
     def tick(self) -> Decision:
         t = self.clock()
         frame = self.source.read()
@@ -414,8 +420,9 @@ class Engine:
             if catchall is not None and catchall.reference is not None:
                 had_pending = bool(self._catchall_objs)
                 explained = np.zeros(cmap.slack.shape, bool)
-                for o in perceived if self.perception.api_ok else []:
-                    explained |= o.mask
+                for o in perceived:
+                    if self._track_ready(o):
+                        explained |= o.mask
                 self._catchall_objs = [
                     PerceivedObject(f"u{i}", "unclassified movement", d.mask, "high",
                                     "Waiting for SAM to identify this change before starting a shutoff countdown.", "catchall")
@@ -435,7 +442,7 @@ class Engine:
                     if status == "violation":
                         if is_person_label(o.label) or o.extra.get("on_person"):
                             status = "watch"
-                        elif o.source == "catchall" or o.misses > 0 or not self.perception.api_ok:
+                        elif not self._track_ready(o):
                             status = "pending"
                     measured.append(MeasuredObject(o, m, status))
             self._measured = measured
@@ -453,7 +460,8 @@ class Engine:
             ZoneObject(mo.obj.track_id, mo.obj.label, mo.m.slack_in, mo.m.err_in,
                        mo.obj.hazard if mo.obj.hazard in ("high", "medium", "low") else "high",  # type: ignore[arg-type]
                        is_person_label(mo.obj.label) or bool(mo.obj.extra.get("on_person")),
-                       awaiting_model=mo.obj.source == "catchall" or mo.obj.misses > 0)
+                       awaiting_model=not self._track_ready(mo.obj),
+                       model_verified=self._track_ready(mo.obj))
             for mo in self._measured
         )
         obs = Observation(t, zone_objects, camera_ok, calibration_ok, self.perception.api_ok, power_w,

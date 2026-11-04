@@ -97,6 +97,36 @@ def test_blanket_sends_off_request_and_keeps_guarded_reset(rig):
     assert not engine.reset()
 
 
+def test_known_tracked_object_shuts_off_during_unrelated_sam_recheck(rig, monkeypatch):
+    engine, world, plug, tick = rig
+    world.place("blanket", "near")
+    assert tick().countdown_s == 10
+    known = [mo.obj for mo in engine._measured]
+    monkeypatch.setattr(engine.perception, "current", lambda: known)
+    monkeypatch.setattr(engine.perception, "is_track_ready", lambda obj: True, raising=False)
+    engine.perception.fault_api = True  # global scene health is pending, but this track remains valid
+    d = tick(5)
+    assert d.state.value == "WARN" and d.countdown_s == 5
+    assert engine.state_message["objects"][0]["status"] == "violation"
+    assert tick(5).state.value == "OFF_REQUESTED"
+    assert plug.off_commands == 1
+
+
+def test_uncertain_known_mask_waits_for_sam_without_shutting_off(rig, monkeypatch):
+    engine, world, plug, tick = rig
+    world.place("blanket", "near")
+    tick()
+    known = [mo.obj for mo in engine._measured]
+    monkeypatch.setattr(engine.perception, "current", lambda: known)
+    monkeypatch.setattr(engine.perception, "is_track_ready", lambda obj: False, raising=False)
+    engine.perception.fault_api = True
+    for _ in range(15):
+        d = tick(1)
+        assert d.countdown_s is None and d.state.value == "WATCH"
+        assert engine.state_message["objects"][0]["status"] == "pending"
+    assert plug.off_commands == 0
+
+
 
 def shutoff_then_clear(rig):
     engine, world, plug, tick = rig

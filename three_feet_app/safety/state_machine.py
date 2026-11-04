@@ -9,7 +9,7 @@ Principles:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import Literal
 
@@ -42,6 +42,7 @@ class ZoneObject:
     hazard: HazardLevel = "high"
     is_person: bool = False
     awaiting_model: bool = False
+    model_verified: bool = False  # fresh SAM identity plus a confidently tracked current mask
 
 
 @dataclass(frozen=True)
@@ -179,14 +180,16 @@ class SafetyStateMachine:
             return None, None
 
         objects = [
-            o if obs.api_ok else ZoneObject(o.track_id, o.label, o.slack_in, o.err_in, "high", o.is_person)
+            o if obs.api_ok or o.model_verified else replace(o, hazard="high")
             for o in obs.objects
         ]
         statuses = {o.track_id: classify(o.slack_in, o.err_in, cfg.watch_margin_in) for o in objects}
         violating = [o for o in objects if statuses[o.track_id] == "violation"]
         watching = [o for o in objects if statuses[o.track_id] in ("watch", "uncertain")]
-        pending = [o for o in violating if not o.is_person and (o.awaiting_model or not obs.api_ok)]
-        candidates = [o for o in violating if not o.is_person and not o.awaiting_model and obs.api_ok]
+        pending = [o for o in violating if not o.is_person
+                   and (o.awaiting_model or not (obs.api_ok or o.model_verified))]
+        candidates = [o for o in violating if not o.is_person and not o.awaiting_model
+                      and (obs.api_ok or o.model_verified)]
         worst = min(objects, key=lambda o: (statuses[o.track_id] != "violation", o.slack_in), default=None)
         eligible = {o.track_id for o in candidates}
         self._violation_since = {key: since for key, since in self._violation_since.items() if key in eligible}
