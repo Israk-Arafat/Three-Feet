@@ -25,6 +25,7 @@ from .engine import Engine, NullPerception
 from .perception.meta_client import CostMeter, make_client
 from .perception.wonder import ClearanceRule, WonderClient, rule_from_extraction
 from .safety.actuator import DryRunPlug, make_switch
+from .setup_service import DimensionsBody, ManualSetupBody, SetupError, SetupService
 from .sources import FolderSource, open_source
 
 WEB_DIST = REPO_ROOT / "web" / "dist"
@@ -110,7 +111,7 @@ def build_engine(source_spec: str, plug_kind: str, demo: bool) -> tuple[Engine, 
                     probe=probe, wonder=wonder, meter=meter, mode="replay" if path.is_dir() else "live",
                     demo=demo, source_label=source_spec)
     if calib is None:
-        engine.log("setup", "No calibration found — run scripts/calibrate.py. Status stays UNKNOWN until then.")
+        engine.log("setup", "Open Heater setup, enter the base measurements, then find or mark its footprint.")
     return engine, None
 
 
@@ -124,6 +125,7 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         engine, autoplay = build_engine(source, plug, demo)
         app.state.engine, app.state.autoplay = engine, autoplay
+        app.state.setup = SetupService(engine)
         engine.start()
         if autoplay is not None:
             if not autoplay_on:
@@ -132,6 +134,7 @@ def create_app() -> FastAPI:
         yield
         if autoplay is not None:
             autoplay.stop()
+        app.state.setup.close()
         engine.stop()
 
     app = FastAPI(title="Three Feet", lifespan=lifespan)

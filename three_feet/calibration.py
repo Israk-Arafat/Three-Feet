@@ -181,6 +181,6 @@ def calibrate_from_heater(
         est = cv2.perspectiveTransform(probes_px, Hj).reshape(-1, 2)
         errors.extend(np.linalg.norm(est - probes, axis=1))
     frac = float(np.percentile(errors, 95)) / reach_in if errors else 0.5
-    cal = CalibrationFile(floor=floor, method="heater", distance_err_frac=float(np.clip(frac, 0.03, 0.5)))
+    cal = CalibrationFile(floor=floor, method="heater", distance_err_frac=max(frac, 0.03))
     cal.heater = HeaterFootprint.from_corners(*floor_pts)
     return cal

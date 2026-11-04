@@ -258,6 +258,27 @@ class Engine:
             self.catchall = ZoneChangeDetector(cmap.zone_mask(s.watch_margin_in), ignore_mask=heater_px)
             self.catchall.reference = old_ref
 
+    def set_calibration(self, calib: CalibrationFile) -> None:
+        """Apply a reviewed setup without restarting the camera or energizing the plug."""
+        with self._state_lock:
+            if self._reset_pending:
+                raise RuntimeError("Wait for power restoration to finish before changing the heater setup")
+            self.calib = calib
+            self.probe = (IndicatorProbe(calib.indicator_roi, calib.indicator_threshold)
+                          if calib.indicator_roi and calib.indicator_threshold is not None else None)
+            self.sm.cfg = replace(self.sm.cfg, require_indicator=self.probe is not None)
+            self.catchall = None  # A reference from the previous view cannot explain this floor plane.
+            self._build_geometry()
+            self._calibration_ok = True
+            self._last_drift_check = -1e9
+            self.drift = 0.0
+            self._last_observation = None
+            self._measured = []
+            self._catchall_objs = []
+        self.log("setup", "Heater base calibration applied from the dashboard",
+                 {"width_in": calib.heater.width_in, "depth_in": calib.heater.depth_in,
+                  "method": calib.method, "distance_error_pct": round(calib.distance_err_frac * 100, 1)})
+
     def set_rule(self, rule: ClearanceRule) -> None:
         self.rule = rule
         self._build_geometry()

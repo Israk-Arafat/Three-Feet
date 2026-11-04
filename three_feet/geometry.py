@@ -177,7 +177,8 @@ class ClearanceMap:
         xs, ys = np.meshgrid(np.arange(w, dtype=np.float64), np.arange(h, dtype=np.float64))
         pix = np.stack([xs.ravel(), ys.ravel(), np.ones(w * h)])
         proj = calib.H @ pix
-        ref_sign = np.sign((calib.H @ np.array([w / 2, h / 2, 1.0]))[2]) or 1.0
+        heater_px = calib.floor_to_image([heater.center])[0]
+        ref_sign = np.sign((calib.H @ np.array([heater_px[0], heater_px[1], 1.0]))[2]) or 1.0
         valid = np.sign(proj[2]) == ref_sign
         floor = (proj[:2] / np.where(proj[2] == 0, 1e-12, proj[2])).T
         distance, required, slack, side_idx = clearance_fields(heater, clear, floor)
