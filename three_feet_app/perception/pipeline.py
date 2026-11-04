@@ -19,7 +19,7 @@ from ..sources import Frame
 from .local_tracking import LocalMaskTracker
 from .meta_client import CostMeter
 from .sam import SamClient
-from .spark import ALWAYS_ON_CONCEPTS, SparkClient
+from .spark import ALWAYS_ON_CONCEPTS, SparkClient, safety_concepts
 from .tracking import PerceivedObject, Tracker, dedupe_detections, is_person_label
 
 
@@ -38,11 +38,14 @@ class MetaPerception:
         self.last_success_at: float | None = None
         self.last_frame_ts: float | None = None
         self.last_frame_index: int | None = None
+        self._last_input_ts: float | None = None
+        self._last_input_index: int | None = None
         self._segmentation_error: str | None = None
         self.tracker = Tracker()
         self._local = LocalMaskTracker()
         self._last_verification_ts: float | None = None
         self._scene_changed = False
+        self._concepts_changed = False
         self.local_tracking_active = False
         self.concepts: list[str] = list(ALWAYS_ON_CONCEPTS)
         self.fault_api = False  # demo fault injection
@@ -106,13 +109,19 @@ class MetaPerception:
         with self._lock:
             # Duplicate, out-of-order, or old input cannot refresh tracking health.
             if (not 0 <= self.clock() - frame.ts <= self.max_result_age_s
-                    or (self.last_frame_ts is not None and frame.ts < self.last_frame_ts)):
+                    or (self._last_input_ts is not None and frame.ts < self._last_input_ts)):
                 return
-            if self.last_frame_index == frame.index:
+            if self._last_input_index == frame.index:
                 return
+            gap = self._last_input_ts is not None and frame.ts - self._last_input_ts > self.max_result_age_s
+            self._last_input_ts, self._last_input_index = frame.ts, frame.index
             if self._last_verification_ts is not None:
-                gap = self.last_frame_ts is None or frame.ts - self.last_frame_ts > self.max_result_age_s
                 changed = self._local.update(frame.image, self.tracker)
+                for obj in self.tracker.objects():
+                    if gap:
+                        obj.extra["awaiting_model"] = True
+                    if not obj.extra.get("awaiting_model"):
+                        obj.extra["tracking_frame_ts"] = frame.ts
                 self._scene_changed = self._scene_changed or gap or changed
                 if not self._scene_changed and self._segmentation_error is None:
                     self.last_frame_ts, self.last_frame_index = frame.ts, frame.index
@@ -123,7 +132,7 @@ class MetaPerception:
             # just removed lingers in the tracker for several idle refreshes and keeps blocking the reset.
             settling = any(o.misses > 0 for o in self.tracker.objects())
             needs_check = (self._last_verification_ts is None or self._scene_changed or settling
-                           or self._segmentation_error is not None)
+                           or self._concepts_changed or self._segmentation_error is not None)
             if not needs_check and t - self._last_cycle < self.idle_refresh_s:
                 return
             period = self.sam_period_s
@@ -142,9 +151,11 @@ class MetaPerception:
             self._local = LocalMaskTracker()
             self._last_verification_ts = None
             self._scene_changed = False
+            self._concepts_changed = False
             self.local_tracking_active = False
             self.concepts = list(ALWAYS_ON_CONCEPTS)
             self.last_success_at = self.last_frame_ts = self.last_frame_index = None
+            self._last_input_ts = self._last_input_index = None
             self._segmentation_error = None
             self.last_error = None
             self._last_cycle = float("-inf")
@@ -162,6 +173,18 @@ class MetaPerception:
         with self._lock:
             return self.tracker.objects()
 
+    def is_track_ready(self, obj: PerceivedObject) -> bool:
+        """A healthy known track can remain usable during an unrelated scene recheck."""
+        with self._lock:
+            now = self.clock()
+            verified = self._last_verification_ts
+            stamp = obj.extra.get("tracking_frame_ts")
+            return bool(not self.fault_api and not self.meter.over_budget() and not self._segmentation_error
+                        and self.tracker.tracks.get(obj.track_id) is obj
+                        and not obj.misses and not obj.extra.get("awaiting_model")
+                        and verified is not None and 0 <= now - verified <= self.verification_max_age_s
+                        and stamp is not None and 0 <= now - stamp <= self.max_result_age_s)
+
     def shutdown(self) -> None:
         self._pool.shutdown(wait=False, cancel_futures=True)
         self._assess_pool.shutdown(wait=False, cancel_futures=True)
@@ -172,7 +195,10 @@ class MetaPerception:
             concepts = self.spark.inventory(view)
             with self._lock:
                 if generation == self._generation:
-                    self.concepts = concepts
+                    concepts = safety_concepts(concepts)
+                    if concepts != self.concepts:
+                        self.concepts = concepts
+                        self._concepts_changed = True
         except Exception as exc:
             with self._lock:
                 if generation == self._generation:
@@ -196,9 +222,8 @@ class MetaPerception:
                 if due:
                     self._inventory_busy = True
                     self._last_inventory = t
-                concepts = list(self.concepts)
-                if "person" not in concepts:
-                    concepts.insert(0, "person")
+                concepts = safety_concepts(self.concepts)
+                self._concepts_changed = False
             if due:
                 self._inventory_pool.submit(self._refresh_inventory, zone_view if zone_view is not None else image,
                                             generation)
@@ -224,6 +249,8 @@ class MetaPerception:
                 self.last_frame_index = frame_index
                 self._last_verification_ts = frame_ts
                 self._local.seed(image, self.tracker)
+                for track in self.tracker.objects():
+                    track.extra["tracking_frame_ts"] = frame_ts
                 self._scene_changed = False
                 self.local_tracking_active = False
                 self._segmentation_error = None

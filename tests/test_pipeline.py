@@ -103,6 +103,7 @@ def test_person_is_requested_even_if_inventory_returns_only_cloth():
         p.on_frame(_frame(1), 1, True)
         assert _wait(lambda: not p._busy)
         assert "person" in sam.last_concepts
+        assert set(ALWAYS_ON_CONCEPTS) <= set(sam.last_concepts)
     finally:
         p.shutdown()
 
@@ -416,6 +417,80 @@ def test_new_scene_stays_unhealthy_until_verification_completes():
         release.set()
         assert _wait(lambda: not p._busy)
         assert p.api_ok
+    finally:
+        release.set()
+        p.shutdown()
+
+
+def test_new_inventory_labels_are_segmented_without_waiting_for_idle_refresh():
+    now = [100.0]
+    sam, spark = FakeSam(), SlowSpark()
+    sam.present = False
+    p = MetaPerception(sam, spark, CostMeter(), idle_refresh_s=30, clock=lambda: now[0])
+    try:
+        image = _frame(0).image
+        p.on_frame(Frame(image, 100, 0), 100, False)
+        assert _wait(lambda: not p._busy)
+        assert sam.calls == 1 and "cloth" not in sam.last_concepts
+        spark.release.set()
+        assert _wait(lambda: not p._inventory_busy)
+        now[0] = 101
+        p.on_frame(Frame(image, 101, 1), 101, False)
+        assert _wait(lambda: not p._busy)
+        assert sam.calls == 2 and "cloth" in sam.last_concepts
+        assert set(ALWAYS_ON_CONCEPTS) <= set(sam.last_concepts)
+    finally:
+        spark.release.set()
+        p.shutdown()
+
+
+def test_unrelated_scene_change_preserves_only_confident_known_tracks():
+    now = [100.0]
+    entered, release = threading.Event(), threading.Event()
+
+    class KnownSam:
+        calls = 0
+
+        def segment_many(self, image, concepts):
+            self.calls += 1
+            if self.calls > 1:
+                entered.set()
+                release.wait(5)
+            mask = np.zeros(image.shape[:2], bool)
+            mask[10:30, 10:30] = True
+            return [SamResult("blanket", [Detection("blanket", "1", (10, 10, 30, 30), mask)], .01)]
+
+    class BaselineSpark(QuietSpark):
+        def inventory(self, view):
+            return list(ALWAYS_ON_CONCEPTS)
+
+    p = MetaPerception(KnownSam(), BaselineSpark(), CostMeter(), clock=lambda: now[0])
+    try:
+        image = np.zeros((100, 100, 3), np.uint8)
+        image[10:30, 10:30] = 180
+        p.on_frame(Frame(image, 100, 0), 100, False)
+        assert _wait(lambda: not p._busy)
+        obj = p.current()[0]
+        assert p.is_track_ready(obj)
+        changed = image.copy()
+        changed[65:85, 65:85] = 255
+        now[0] = 101
+        p.on_frame(Frame(changed, 101, 1), 101, False)
+        assert entered.wait(1)
+        assert not p.api_ok and p.is_track_ready(obj)
+        # Removing that object's pixels is no longer an unrelated scene change.
+        changed[10:30, 10:30] = 0
+        now[0] = 102
+        p.on_frame(Frame(changed, 102, 2), 102, False)
+        assert not p.is_track_ready(obj)
+        # Returning pixels cannot re-arm an unverified mask without SAM.
+        now[0] = 103
+        p.on_frame(Frame(image, 103, 3), 103, False)
+        assert not p.is_track_ready(obj)
+        release.set()
+        assert _wait(lambda: not p._busy)
+        now[0] = 147
+        assert not p.is_track_ready(obj)
     finally:
         release.set()
         p.shutdown()

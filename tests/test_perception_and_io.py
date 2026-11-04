@@ -4,7 +4,9 @@ import pytest
 
 from three_feet_app.perception.catchall import ZoneChangeDetector
 from three_feet_app.perception.sam import parse_sam_output
-from three_feet_app.perception.spark import HazardAssessment, conservative_level, merge_concepts
+from three_feet_app.perception.spark import ALWAYS_ON_CONCEPTS, HazardAssessment, conservative_level, merge_concepts, safety_concepts
+from three_feet_app.perception.sam import Detection
+from three_feet_app.perception.tracking import Tracker, dedupe_detections
 from three_feet_app.perception.wonder import rule_from_extraction
 from three_feet_app.safety.actuator import DryRunPlug
 from three_feet_app.sources import split_jpegs
@@ -68,6 +70,31 @@ def test_conservative_hazard():
 def test_merge_concepts():
     assert merge_concepts(["Fleece  blanket", "blanket", "a, b"], ["blanket", "towel"], 3) == [
         "Fleece blanket", "blanket", "towel"]
+
+
+def test_scene_inventory_cannot_evict_common_hazards():
+    concepts = safety_concepts(["floral bedspread", "gray dresser", "black cabinet", "fourth item"])
+    assert set(ALWAYS_ON_CONCEPTS) <= set(concepts)
+    assert {"clothing", "towel", "paper", "shoe", "bag"} <= set(concepts)
+    assert len(concepts) == len(ALWAYS_ON_CONCEPTS) + 3
+
+
+def test_overlapping_boxes_do_not_suppress_different_object_masks():
+    a = np.eye(20, dtype=bool)
+    b = np.fliplr(a)
+    first = Detection("blanket", "1", (0, 0, 20, 20), a, .99)
+    second = Detection("clothing", "2", (0, 0, 20, 20), b, .8)
+    assert len(dedupe_detections([first, second])) == 2
+    assert len(dedupe_detections([first, Detection("cloth", "3", first.box, a.copy(), .7)])) == 1
+
+
+def test_person_track_cannot_turn_dropped_clothing_into_a_person():
+    tracker = Tracker()
+    mask = np.ones((20, 20), bool)
+    person = tracker.update([Detection("person", "1", (0, 0, 20, 20), mask)])[0]
+    clothing = tracker.update([Detection("clothing", "2", (0, 0, 20, 20), mask)])[0]
+    assert clothing.label == "clothing" and clothing.track_id != person.track_id
+    assert person.misses == 1
 
 
 def test_rule_uses_stricter_value_and_defaults():

@@ -46,10 +46,14 @@ class LocalMaskTracker:
         self._shape = image.shape[:2]
         self._masks = {o.track_id: o.mask.copy() for o in tracker.objects()}
         self._offsets = {tid: np.zeros(2, np.float32) for tid in self._masks}
+        for obj in tracker.objects():
+            obj.extra["awaiting_model"] = obj.misses > 0
 
     def update(self, image: np.ndarray, tracker: Tracker) -> bool:
         """Move confidently tracked masks. Return True if SAM must inspect the scene."""
         if self._anchor is None or self._previous is None or image.shape[:2] != self._shape:
+            for obj in tracker.objects():
+                obj.extra["awaiting_model"] = True
             return True
         current = self._prepare(image)
         previous = self._previous
@@ -62,6 +66,7 @@ class LocalMaskTracker:
         for obj in tracker.objects():
             original = self._masks.get(obj.track_id)
             if original is None or obj.mask.shape != self._shape:
+                obj.extra["awaiting_model"] = True
                 uncertain = True
                 continue
             mask = self._resize_mask(obj.mask, shape)
@@ -71,6 +76,7 @@ class LocalMaskTracker:
             if region.any() and float(delta[region].mean()) > 0.01:
                 shift = self._translation(gray_before, gray_now, mask)
                 if shift is None:
+                    obj.extra["awaiting_model"] = True
                     uncertain = True
                 else:
                     transform = np.float32([[1, 0, shift[0]], [0, 1, shift[1]]])
@@ -82,6 +88,7 @@ class LocalMaskTracker:
                     if (moved_mask.sum() < mask.sum() * 0.9 or not moved_mask.any()
                             or float(mismatch[moved_mask].mean()) > 0.05):
                         uncertain = True
+                        obj.extra["awaiting_model"] = True
                     else:
                         sx, sy = image.shape[1] / shape[1], image.shape[0] / shape[0]
                         self._offsets[obj.track_id] += shift * np.array([sx, sy], np.float32)

@@ -55,7 +55,8 @@ class Tracker:
     def update(self, detections: list[Detection]) -> list[PerceivedObject]:
         """Returns newly created tracks (callers typically request a hazard judgment for them)."""
         pairs = sorted(
-            ((box_iou(self._boxes[tid], d.box), tid, i) for tid in self.tracks for i, d in enumerate(detections)),
+            ((box_iou(self._boxes[tid], d.box), tid, i) for tid in self.tracks for i, d in enumerate(detections)
+             if is_person_label(self.tracks[tid].label) == is_person_label(d.concept)),
             reverse=True,
         )
         used_tracks: set[str] = set()
@@ -102,6 +103,10 @@ def dedupe_detections(detections: list[Detection], iou_threshold: float = 0.6) -
     ordered = sorted(detections, key=lambda d: -(d.confidence or 0.0))
     kept: list[Detection] = []
     for d in ordered:
-        if all(box_iou(d.box, k.box) < iou_threshold for k in kept):
+        # Bounding boxes can overlap while the actual objects occupy different pixels.
+        # Suppressing those loses small objects beside/on patterned bedding.
+        if all(box_iou(d.box, k.box) < iou_threshold
+               or np.count_nonzero(d.mask & k.mask) / max(1, np.count_nonzero(d.mask | k.mask)) < iou_threshold
+               for k in kept):
             kept.append(d)
     return kept
