@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from scripts import calibrate_auto
-from three_feet.perception import setup
+from three_feet_app.perception import setup
 
 
 def visible_base():

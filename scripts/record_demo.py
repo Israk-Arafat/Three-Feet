@@ -21,11 +21,11 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from three_feet.config import REPO_ROOT, Settings  # noqa: E402
-from three_feet.engine import Engine  # noqa: E402
-from three_feet.perception.wonder import ClearanceRule  # noqa: E402
-from three_feet.safety.actuator import DryRunPlug  # noqa: E402
-from three_feet.sim import SimPerception, SimSource, SimWorld  # noqa: E402
+from three_feet_app.config import REPO_ROOT, Settings  # noqa: E402
+from three_feet_app.engine import Engine  # noqa: E402
+from three_feet_app.perception.wonder import ClearanceRule  # noqa: E402
+from three_feet_app.safety.actuator import DryRunPlug  # noqa: E402
+from three_feet_app.sim import SimPerception, SimSource, SimWorld  # noqa: E402
 
 DEFAULT_OUT = REPO_ROOT / "web" / "demo-data"
 TICK_S = 0.1

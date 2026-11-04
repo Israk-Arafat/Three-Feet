@@ -22,7 +22,7 @@ python -m pip install -e ".[dev]"
 Copy-Item .env.example .env
 npm --prefix web ci
 npm --prefix web run build
-python -m three_feet.app --source sim --plug dryrun
+python -m three_feet_app.app --source sim --plug dryrun
 ```
 
 Open [localhost:8000](http://127.0.0.1:8000/). The simulator runs without a camera, physical plug, or API key.
@@ -31,12 +31,12 @@ On macOS/Linux, activate with `source .venv/bin/activate` and copy the settings 
 
 ## Live monitoring
 
-1. Set `MODEL_API_KEY` in `.env`, install the optional dependencies required by your plug driver, and run `python -m three_feet.app`.
+1. Set `MODEL_API_KEY` in `.env`, install the optional dependencies required by your plug driver, and run `python -m three_feet_app.app`.
 2. Open **Camera and plug** to connect a camera and select a supported power adapter.
 3. Use **Heater setup** to measure the base and review its floor-contact corners. Keep the camera fixed after calibration.
 4. Review **Clearance rule**, then enable alerts. Find or upload the heater's manual to review its required distances.
 
-Camera inputs include USB webcams, HTTP(S) MJPEG streams, video files, and photo folders. Power control uses the [PowerSwitch interface](three_feet/safety/actuator.py); device support depends on the installed driver, with a simulated adapter included for testing.
+Camera inputs include USB webcams, HTTP(S) MJPEG streams, video files, and photo folders. Power control uses the [PowerSwitch interface](three_feet_app/safety/actuator.py); device support depends on the installed driver, with a simulated adapter included for testing.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |

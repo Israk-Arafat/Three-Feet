@@ -8,12 +8,12 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-import three_feet.app as app_module
-from three_feet.config import Settings
-from three_feet.engine import Engine
-from three_feet.perception.wonder import ClearanceRule
-from three_feet.safety.actuator import DryRunPlug
-from three_feet.sim import SimPerception, SimSource, SimWorld
+import three_feet_app.app as app_module
+from three_feet_app.config import Settings
+from three_feet_app.engine import Engine
+from three_feet_app.perception.wonder import ClearanceRule
+from three_feet_app.safety.actuator import DryRunPlug
+from three_feet_app.sim import SimPerception, SimSource, SimWorld
 
 
 @pytest.fixture

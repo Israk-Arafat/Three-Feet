@@ -4,11 +4,11 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from three_feet.perception.meta_client import CostMeter
-from three_feet.perception.pipeline import MetaPerception
-from three_feet.perception.sam import Detection, SamResult
-from three_feet.perception.spark import ALWAYS_ON_CONCEPTS
-from three_feet.sources import Frame
+from three_feet_app.perception.meta_client import CostMeter
+from three_feet_app.perception.pipeline import MetaPerception
+from three_feet_app.perception.sam import Detection, SamResult
+from three_feet_app.perception.spark import ALWAYS_ON_CONCEPTS
+from three_feet_app.sources import Frame
 
 
 class FakeSam:

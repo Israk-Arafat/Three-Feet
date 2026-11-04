@@ -17,8 +17,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from three_feet.config import get_settings  # noqa: E402
-from three_feet.safety.actuator import DryRunPlug, PlugStatus, make_switch  # noqa: E402
+from three_feet_app.config import get_settings  # noqa: E402
+from three_feet_app.safety.actuator import DryRunPlug, PlugStatus, make_switch  # noqa: E402
 
 
 def describe(s: PlugStatus) -> str:

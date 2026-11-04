@@ -2,13 +2,13 @@
 
 import pytest
 
-from three_feet.config import Settings, get_settings
+from three_feet_app.config import Settings, get_settings
 
 
 @pytest.fixture(autouse=True)
 def isolated_settings(monkeypatch, tmp_path):
-    import three_feet.app as app_module
-    import three_feet.perception.wonder as wonder_module
+    import three_feet_app.app as app_module
+    import three_feet_app.perception.wonder as wonder_module
 
     for name in Settings.model_fields:
         monkeypatch.delenv(name.upper(), raising=False)

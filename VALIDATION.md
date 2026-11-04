@@ -9,7 +9,7 @@ Fix the phone after calibration. Use a tape measure from the heater footprint to
 For each observation, supply the actual tape reading, displayed estimate and ± error, and active clearance. Replace these illustrative numbers with your own readings:
 
 ```powershell
-python -m three_feet.evaluation distance --csv runs/validation/distances.csv --setup physical-fixed-phone --object blanket --measured-in 36 --estimated-in 35 --error-in 2 --required-in 36 --notes "Front; room light; clear floor contact"
+python -m three_feet_app.evaluation distance --csv runs/validation/distances.csv --setup physical-fixed-phone --object blanket --measured-in 36 --estimated-in 35 --error-in 2 --required-in 36 --notes "Front; room light; clear floor contact"
 ```
 
 ## Record shutdown attempts
@@ -17,7 +17,7 @@ python -m three_feet.evaluation distance --csv runs/validation/distances.csv --s
 Record whether the OFF command returned successfully or raised an error. Optional latency measures command acknowledgement time. The app records command outcomes and displays the plug's reported state separately.
 
 ```powershell
-python -m three_feet.evaluation shutoff --csv runs/validation/shutoffs.csv --setup physical-fixed-phone --command-succeeded yes --latency-s 1.2 --notes "OFF command returned successfully"
+python -m three_feet_app.evaluation shutoff --csv runs/validation/shutoffs.csv --setup physical-fixed-phone --command-succeeded yes --latency-s 1.2 --notes "OFF command returned successfully"
 ```
 
 Exercise camera loss, API failure, budget pause, and command failure. Demonstrate fault injection in the simulator separately from the physical setup.
@@ -25,7 +25,7 @@ Exercise camera loss, API failure, budget pause, and command failure. Demonstrat
 ## Generate results
 
 ```powershell
-python -m three_feet.evaluation report --distances runs/validation/distances.csv --shutoffs runs/validation/shutoffs.csv --output RESULTS.md
+python -m three_feet_app.evaluation report --distances runs/validation/distances.csv --shutoffs runs/validation/shutoffs.csv --output RESULTS.md
 ```
 
 The report groups results by setup and includes trial counts, mean/max absolute error, coverage of the engineering error range, boundary misses and false alarms, command failures, and command latency. Keep CSV notes with the report so the conditions are reviewable. A report without trials explicitly says validation is missing.

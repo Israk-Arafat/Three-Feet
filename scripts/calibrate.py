@@ -27,12 +27,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
 
-from three_feet.calibration import calibrate_from_heater, calibrate_from_markers, calibrate_from_points  # noqa: E402
-from three_feet.config import CALIBRATION_PATH, RULES_PATH, get_settings  # noqa: E402
-from three_feet.geometry import ClearanceMap, Clearances, HeaterFootprint  # noqa: E402
-from three_feet.overlay import draw_zone, put_label  # noqa: E402
-from three_feet.perception.wonder import ClearanceRule  # noqa: E402
-from three_feet.sources import MjpegHttpSource, open_source  # noqa: E402
+from three_feet_app.calibration import calibrate_from_heater, calibrate_from_markers, calibrate_from_points  # noqa: E402
+from three_feet_app.config import CALIBRATION_PATH, RULES_PATH, get_settings  # noqa: E402
+from three_feet_app.geometry import ClearanceMap, Clearances, HeaterFootprint  # noqa: E402
+from three_feet_app.overlay import draw_zone, put_label  # noqa: E402
+from three_feet_app.perception.wonder import ClearanceRule  # noqa: E402
+from three_feet_app.sources import MjpegHttpSource, open_source  # noqa: E402
 
 
 def click_points(image: np.ndarray, n: int, title: str, prompts: list[str]) -> list[tuple[int, int]]:

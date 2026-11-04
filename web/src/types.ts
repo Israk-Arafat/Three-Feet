@@ -1,4 +1,4 @@
-// Mirrors the backend's Engine._message() and event log (three_feet/engine.py).
+// Mirrors the backend's Engine._message() and event log (three_feet_app/engine.py).
 export interface ViewGeometry {
   configured: boolean; image_size: [number,number] | null; base_corners_px: number[][] | null;
   base_width_in: number | null; base_depth_in: number | null;

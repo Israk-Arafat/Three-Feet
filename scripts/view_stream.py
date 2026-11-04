@@ -16,9 +16,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import cv2  # noqa: E402
 
-from three_feet.config import DATA_DIR  # noqa: E402
-from three_feet.overlay import put_label  # noqa: E402
-from three_feet.sources import MjpegHttpSource, open_source  # noqa: E402
+from three_feet_app.config import DATA_DIR  # noqa: E402
+from three_feet_app.overlay import put_label  # noqa: E402
+from three_feet_app.sources import MjpegHttpSource, open_source  # noqa: E402
 
 
 def main() -> int:

@@ -2,12 +2,12 @@ import cv2
 import numpy as np
 import pytest
 
-from three_feet.perception.catchall import ZoneChangeDetector
-from three_feet.perception.sam import parse_sam_output
-from three_feet.perception.spark import HazardAssessment, conservative_level, merge_concepts
-from three_feet.perception.wonder import rule_from_extraction
-from three_feet.safety.actuator import DryRunPlug
-from three_feet.sources import split_jpegs
+from three_feet_app.perception.catchall import ZoneChangeDetector
+from three_feet_app.perception.sam import parse_sam_output
+from three_feet_app.perception.spark import HazardAssessment, conservative_level, merge_concepts
+from three_feet_app.perception.wonder import rule_from_extraction
+from three_feet_app.safety.actuator import DryRunPlug
+from three_feet_app.sources import split_jpegs
 
 # Sample output line from https://dev.meta.ai/docs/sam/reading-segmentation (320x334 source).
 DOC_LINE = (

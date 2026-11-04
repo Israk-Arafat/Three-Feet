@@ -6,7 +6,7 @@ import pytest
 import numpy as np
 from fastapi.testclient import TestClient
 
-from three_feet import app as app_module, setup_service
+from three_feet_app import app as app_module, setup_service
 
 
 def test_small_user_selection_produces_untrusted_preview():

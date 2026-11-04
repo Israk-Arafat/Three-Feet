@@ -13,10 +13,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from three_feet.config import RULES_PATH, get_settings  # noqa: E402
-from three_feet.perception.manual_finder import ManualFinder, ManualNotFound  # noqa: E402
-from three_feet.perception.meta_client import CostMeter, make_client  # noqa: E402
-from three_feet.perception.wonder import WonderClient, rule_from_extraction  # noqa: E402
+from three_feet_app.config import RULES_PATH, get_settings  # noqa: E402
+from three_feet_app.perception.manual_finder import ManualFinder, ManualNotFound  # noqa: E402
+from three_feet_app.perception.meta_client import CostMeter, make_client  # noqa: E402
+from three_feet_app.perception.wonder import WonderClient, rule_from_extraction  # noqa: E402
 
 
 def main() -> int:

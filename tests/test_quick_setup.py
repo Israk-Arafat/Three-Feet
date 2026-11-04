@@ -4,8 +4,8 @@ import cv2
 import numpy as np
 import pytest
 
-from three_feet.calibration import CalibrationFile, calibrate_from_heater, camera_matrix, heater_floor_corners
-from three_feet.geometry import ClearanceMap, Clearances
+from three_feet_app.calibration import CalibrationFile, calibrate_from_heater, camera_matrix, heater_floor_corners
+from three_feet_app.geometry import ClearanceMap, Clearances
 
 W_IN, D_IN = 14.0, 9.0
 IMG = (1280, 720)
@@ -77,7 +77,7 @@ def test_heater_quick_setup_measures_distance():
 
 
 def test_dashboard_setup_computes_error_instead_of_using_fifty_percent_fallback():
-    from three_feet.setup_service import SetupService
+    from three_feet_app.setup_service import SetupService
 
     service = SetupService.__new__(SetupService)
     service._state = {"quality": None}

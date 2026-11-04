@@ -6,7 +6,7 @@ import httpx
 import openai
 import pytest
 
-from three_feet.perception.manual_finder import (
+from three_feet_app.perception.manual_finder import (
     MAX_READS,
     ManualFetchError,
     ManualFinder,

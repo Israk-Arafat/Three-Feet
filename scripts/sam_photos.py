@@ -18,15 +18,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import cv2  # noqa: E402
 
-from three_feet.calibration import CalibrationFile  # noqa: E402
-from three_feet.config import CALIBRATION_PATH, RULES_PATH, RUNS_DIR, get_settings  # noqa: E402
-from three_feet.geometry import ClearanceMap, Clearances  # noqa: E402
-from three_feet.overlay import STATUS_BGR, draw_mask, draw_measured, draw_zone, put_label  # noqa: E402
-from three_feet.perception.meta_client import CostMeter, make_client  # noqa: E402
-from three_feet.perception.sam import SamClient  # noqa: E402
-from three_feet.perception.spark import ALWAYS_ON_CONCEPTS, SparkClient  # noqa: E402
-from three_feet.perception.wonder import ClearanceRule  # noqa: E402
-from three_feet.sources import FolderSource  # noqa: E402
+from three_feet_app.calibration import CalibrationFile  # noqa: E402
+from three_feet_app.config import CALIBRATION_PATH, RULES_PATH, RUNS_DIR, get_settings  # noqa: E402
+from three_feet_app.geometry import ClearanceMap, Clearances  # noqa: E402
+from three_feet_app.overlay import STATUS_BGR, draw_mask, draw_measured, draw_zone, put_label  # noqa: E402
+from three_feet_app.perception.meta_client import CostMeter, make_client  # noqa: E402
+from three_feet_app.perception.sam import SamClient  # noqa: E402
+from three_feet_app.perception.spark import ALWAYS_ON_CONCEPTS, SparkClient  # noqa: E402
+from three_feet_app.perception.wonder import ClearanceRule  # noqa: E402
+from three_feet_app.sources import FolderSource  # noqa: E402
 
 
 def main() -> int:

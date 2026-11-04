@@ -1,6 +1,6 @@
 """Record operator-supplied physical trials and summarize them; never operates hardware.
 
-Run ``python -m three_feet.evaluation --help`` for commands.
+Run ``python -m three_feet_app.evaluation --help`` for commands.
 """
 
 from __future__ import annotations

@@ -28,7 +28,7 @@ dev = ["pytest>=8"]
 cync = ["pycync>=0.6"]
 
 [tool.setuptools.packages.find]
-include = ["three_feet*"]
+include = ["three_feet_app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -10,8 +10,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from three_feet.config import get_settings  # noqa: E402
-from three_feet.perception.meta_client import make_client  # noqa: E402
+from three_feet_app.config import get_settings  # noqa: E402
+from three_feet_app.perception.meta_client import make_client  # noqa: E402
 
 
 def main() -> int:

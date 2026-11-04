@@ -1,9 +1,9 @@
 """FastAPI server: WebSocket state, annotated MJPEG stream, REST commands, and the built dashboard.
 
-    python -m three_feet.app                                      # live; camera and plug are set in the dashboard
-    python -m three_feet.app --source sim --demo                  # no hardware, no API key needed
-    python -m three_feet.app --source phone --plug cync --demo    # live, with the plug named on the command line
-    python -m three_feet.app --source data/photos --demo          # replay photos (real API calls)
+    python -m three_feet_app.app                                      # live; camera and plug are set in the dashboard
+    python -m three_feet_app.app --source sim --demo                  # no hardware, no API key needed
+    python -m three_feet_app.app --source phone --plug cync --demo    # live, with the plug named on the command line
+    python -m three_feet_app.app --source data/photos --demo          # replay photos (real API calls)
 """
 
 from __future__ import annotations
@@ -589,7 +589,7 @@ def main() -> None:
     os.environ["TF_PLUG_EXPLICIT"] = "1" if args.plug else "0"
     os.environ["TF_DEMO"] = "1" if args.demo else "0"
     os.environ["TF_AUTOPLAY"] = "0" if args.no_autoplay else "1"
-    uvicorn.run("three_feet.app:create_app", factory=True, host=args.host, port=args.port, reload=args.reload)
+    uvicorn.run("three_feet_app.app:create_app", factory=True, host=args.host, port=args.port, reload=args.reload)
 
 
 if __name__ == "__main__":

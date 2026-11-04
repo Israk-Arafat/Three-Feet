@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from three_feet.geometry import ClearanceMap, Clearances, FloorCalibration, HeaterFootprint, classify
+from three_feet_app.geometry import ClearanceMap, Clearances, FloorCalibration, HeaterFootprint, classify
 
 # Synthetic overhead camera: 10 px per inch, floor origin at pixel (100, 100).
 PX_PER_IN = 10.0

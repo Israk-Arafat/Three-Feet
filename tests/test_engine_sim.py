@@ -6,13 +6,13 @@ from dataclasses import replace
 import pytest
 import numpy as np
 
-from three_feet.config import Settings
-from three_feet.engine import Engine
-from three_feet.perception.wonder import ClearanceRule
-from three_feet.safety.actuator import DryRunPlug
-from three_feet.sim import SimPerception, SimSource, SimWorld
-from three_feet.engine import is_ignored_item
-from three_feet.perception.tracking import PerceivedObject
+from three_feet_app.config import Settings
+from three_feet_app.engine import Engine
+from three_feet_app.perception.wonder import ClearanceRule
+from three_feet_app.safety.actuator import DryRunPlug
+from three_feet_app.sim import SimPerception, SimSource, SimWorld
+from three_feet_app.engine import is_ignored_item
+from three_feet_app.perception.tracking import PerceivedObject
 
 
 class FakeClock:
@@ -359,7 +359,7 @@ def test_calibration_drift_detected(rig):
 
 
 def test_relay_only_plug_sends_off_without_camera_light_setup():
-    from three_feet.safety.actuator import PlugStatus
+    from three_feet_app.safety.actuator import PlugStatus
     class RelayOnlyPlug(DryRunPlug):
         def status(self):
             value = super().status()
@@ -409,8 +409,8 @@ def test_live_outside_measurement_is_uncertain_without_starting_shutoff(rig, mon
 
 
 def test_actual_overlap_has_priority_over_uncertain_outside_object(rig, monkeypatch):
-    from three_feet.geometry import Measurement
-    from three_feet.engine import MeasuredObject
+    from three_feet_app.geometry import Measurement
+    from three_feet_app.engine import MeasuredObject
 
     engine, _, _, tick = rig
     decision = tick()
@@ -426,8 +426,8 @@ def test_actual_overlap_has_priority_over_uncertain_outside_object(rig, monkeypa
 
 @pytest.mark.parametrize("reason", ["stale", "budget", "failed"])
 def test_reset_refuses_unhealthy_model_results_with_a_fresh_camera(rig, reason):
-    from three_feet.perception.meta_client import CostMeter
-    from three_feet.perception.pipeline import MetaPerception
+    from three_feet_app.perception.meta_client import CostMeter
+    from three_feet_app.perception.pipeline import MetaPerception
 
     engine, _, plug, _ = shutoff_then_clear(rig)
     meter = CostMeter(budget_usd_per_hour=1)

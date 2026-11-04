@@ -1,9 +1,9 @@
 import cv2
 import numpy as np
 
-from three_feet.perception.local_tracking import LocalMaskTracker
-from three_feet.perception.sam import Detection
-from three_feet.perception.tracking import Tracker
+from three_feet_app.perception.local_tracking import LocalMaskTracker
+from three_feet_app.perception.sam import Detection
+from three_feet_app.perception.tracking import Tracker
 
 
 def scene(dx=0, dy=0):

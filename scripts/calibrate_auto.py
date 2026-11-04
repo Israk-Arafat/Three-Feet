@@ -21,13 +21,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
 
-from three_feet.calibration import calibrate_from_heater, heater_floor_corners  # noqa: E402
-from three_feet.config import CALIBRATION_PATH, RUNS_DIR  # noqa: E402
-from three_feet.perception.meta_client import CostMeter  # noqa: E402
-from three_feet.perception.setup import (  # noqa: E402
+from three_feet_app.calibration import calibrate_from_heater, heater_floor_corners  # noqa: E402
+from three_feet_app.config import CALIBRATION_PATH, RUNS_DIR  # noqa: E402
+from three_feet_app.perception.meta_client import CostMeter  # noqa: E402
+from three_feet_app.perception.setup import (  # noqa: E402
     CORNER_NAMES, indicator_roi, locate_heater_base, validate_base_candidate,
 )
-from three_feet.sources import MjpegHttpSource, open_source  # noqa: E402
+from three_feet_app.sources import MjpegHttpSource, open_source  # noqa: E402
 
 
 def capture(image_path: str | None, source: str) -> np.ndarray:

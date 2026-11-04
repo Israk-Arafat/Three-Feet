@@ -16,8 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from three_feet.config import CYNC_TOKEN_PATH  # noqa: E402
-from three_feet.safety.cync_plug import device_is_on, save_tokens  # noqa: E402
+from three_feet_app.config import CYNC_TOKEN_PATH  # noqa: E402
+from three_feet_app.safety.cync_plug import device_is_on, save_tokens  # noqa: E402
 
 
 async def main() -> int:

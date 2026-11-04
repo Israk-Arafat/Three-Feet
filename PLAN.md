@@ -101,7 +101,7 @@ One phone is enough. The plan switches from **two cameras with stereo** to **one
 ### Proposed repository layout
 
 ```text
-three_feet/
+three_feet_app/
   app.py                 # FastAPI, WebSocket, MJPEG overlay stream, main loop
   config.py              # thresholds, dwell times, budget caps (pydantic settings, .env)
   sources.py             # FrameSource: ip_webcam | opencv_index | video_file | replay_dir
@@ -123,7 +123,7 @@ three_feet/
     trials.csv           # tape-measure ground truth vs estimates
     report.py            # MAE, boundary accuracy, confusion, shutoff stats → RESULTS.md
   static/index.html      # dashboard
-tools/print_markers.py   # generate printable ArUco sheet
+scripts/print_markers.py   # generate printable ArUco sheet
 rules/heater_rules.json  # reviewed clearance rule with source page + quote
 ```
 
@@ -202,7 +202,7 @@ Every call has a clear purpose. All model calls use **Standard mode**, not Contr
 
 **Markers (tighter error bars):**
 
-1. Print 4 **ArUco markers** (`DICT_4X4_50`, 4 in squares) with `tools/print_markers.py`. If there is no printer, place 4 pieces of bright tape and click them in the UI.
+1. Print 4 **ArUco markers** (`DICT_4X4_50`, 4 in squares) with `scripts/print_markers.py`. If there is no printer, place 4 pieces of bright tape and click them in the UI.
 2. Put the markers at the corners of a **48 × 48 in square** centered on the heater. Measure their exact positions with a tape measure, and enter the coordinates in the UI or in `calibration.json`.
 3. Compute `H = cv2.findHomography(image_pts, floor_pts_in)`. Show the **reprojection RMS in inches** in the UI.
 4. Precompute an **image-space distance map**:

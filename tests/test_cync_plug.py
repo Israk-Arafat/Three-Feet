@@ -7,8 +7,8 @@ import time
 
 import pytest
 
-from three_feet.safety import cync_plug
-from three_feet.safety.cync_plug import CyncPlug, device_is_on, load_user, pick_device, save_tokens
+from three_feet_app.safety import cync_plug
+from three_feet_app.safety.cync_plug import CyncPlug, device_is_on, load_user, pick_device, save_tokens
 
 
 class FakePlug:  # named like pycync's class so pick_device recognizes it
@@ -212,7 +212,7 @@ def test_disconnected_account_is_unreachable():
 
 
 def test_make_switch_knows_cync(monkeypatch):
-    from three_feet.safety import actuator
+    from three_feet_app.safety import actuator
 
     created = {}
 

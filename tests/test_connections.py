@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from three_feet.config import Settings
-from three_feet.connections import (
+from three_feet_app.config import Settings
+from three_feet_app.connections import (
     CameraConfig,
     ConnectionService,
     ConnectionStore,
@@ -14,13 +14,13 @@ from three_feet.connections import (
     parse_camera_address,
     startup_connections,
 )
-from three_feet.engine import ConnectionChangeBlocked, Engine
-from three_feet.perception.wonder import ClearanceRule
-from three_feet.safety.actuator import DryRunPlug
-from three_feet.safety.cync_plug import DeviceChoiceError, pick_device
-from three_feet.safety.state_machine import State
-from three_feet.sim import SimPerception, SimSource, SimWorld
-from three_feet.sources import Frame
+from three_feet_app.engine import ConnectionChangeBlocked, Engine
+from three_feet_app.perception.wonder import ClearanceRule
+from three_feet_app.safety.actuator import DryRunPlug
+from three_feet_app.safety.cync_plug import DeviceChoiceError, pick_device
+from three_feet_app.safety.state_machine import State
+from three_feet_app.sim import SimPerception, SimSource, SimWorld
+from three_feet_app.sources import Frame
 
 
 class FakeCamera:
@@ -50,7 +50,7 @@ class FakeCyncPlug:
     def turn_on(self): ...
 
     def status(self):
-        from three_feet.safety.actuator import PlugStatus
+        from three_feet_app.safety.actuator import PlugStatus
 
         return PlugStatus(True, False, None, metering=False)
 
@@ -155,7 +155,7 @@ def test_blank_password_keeps_the_one_in_use(rig):
     engine, service, cameras, _, _, _ = rig
     import threading
 
-    from three_feet.sources import MjpegHttpSource
+    from three_feet_app.sources import MjpegHttpSource
 
     streaming = MjpegHttpSource.__new__(MjpegHttpSource)  # skip the network reader thread
     streaming.url, streaming._auth, streaming._verify = "http://cam/video", ("me", "pw"), False
@@ -256,7 +256,7 @@ def test_device_choice_error_lists_what_the_account_has():
 
 
 def test_connection_api_in_the_simulator(monkeypatch):
-    import three_feet.app as app_module
+    import three_feet_app.app as app_module
 
     monkeypatch.setenv("TF_SOURCE", "sim")
     monkeypatch.setenv("TF_AUTOPLAY", "0")
@@ -271,8 +271,8 @@ def test_connection_api_in_the_simulator(monkeypatch):
 
 
 def test_plain_launch_starts_live_with_no_camera_until_one_is_added(monkeypatch, tmp_path):
-    import three_feet.app as app_module
-    from three_feet.sources import NoCameraSource
+    import three_feet_app.app as app_module
+    from three_feet_app.sources import NoCameraSource
 
     monkeypatch.setattr(app_module, "startup_connections", lambda *args: (None, None))
     engine, _ = app_module.build_engine("phone", "dryrun", False, plug_explicit=False)

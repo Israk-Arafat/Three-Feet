@@ -1,6 +1,6 @@
 import csv
 
-from three_feet.evaluation import DISTANCE_FIELDS, SHUTOFF_FIELDS, append_trial, read_trials, report
+from three_feet_app.evaluation import DISTANCE_FIELDS, SHUTOFF_FIELDS, append_trial, read_trials, report
 
 
 def test_trial_roundtrip_reports_errors_boundary_misses_and_command_failures(tmp_path):

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from three_feet.perception.wonder import ClearanceRule, WonderClient
+from three_feet_app.perception.wonder import ClearanceRule, WonderClient
 
 
 def test_report_uses_local_times_and_command_outcomes():

@@ -5,9 +5,9 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-import three_feet.app as app_module
-import three_feet.perception.wonder as wonder_module
-from three_feet.safety.state_machine import State
+import three_feet_app.app as app_module
+import three_feet_app.perception.wonder as wonder_module
+from three_feet_app.safety.state_machine import State
 
 
 @pytest.fixture
@@ -91,7 +91,7 @@ def test_find_manual_by_name_simulated(client):
 
 
 def test_find_manual_reports_links_it_could_not_download(client, monkeypatch):
-    from three_feet.perception.manual_finder import ManualNotFound
+    from three_feet_app.perception.manual_finder import ManualNotFound
 
     class FakeWonder:
         client = meter = None

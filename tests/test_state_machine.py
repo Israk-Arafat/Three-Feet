@@ -1,4 +1,4 @@
-from three_feet.safety.state_machine import (
+from three_feet_app.safety.state_machine import (
     Action,
     Observation,
     SafetyConfig,
