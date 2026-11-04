@@ -4,7 +4,9 @@ import { defineConfig } from "vite";
 
 const backend = "http://127.0.0.1:8000";
 
-export default defineConfig({
+// The Pages demo is served from a sub-path (/Three-Feet/), so it uses relative asset URLs.
+export default defineConfig(({ mode }) => ({
+  base: mode === "demo" ? "./" : "/",
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
@@ -14,4 +16,4 @@ export default defineConfig({
       "/ws": { target: "ws://127.0.0.1:8000", ws: true },
     },
   },
-});
+}));

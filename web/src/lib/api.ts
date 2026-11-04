@@ -1,4 +1,5 @@
 import type { AppConfig, CameraInput, Connections, CyncDevice, Incident, ManualLink, RuleDraft, RuleInput, SetupState, ViewGeometry } from "../types";
+import { DEMO, DEMO_MESSAGE, demoIncidents } from "./demo";
 
 /** A failed request. `links` carries manual links the server tried; `devices` the Cync plugs to choose from. */
 export class ApiError extends Error {
@@ -8,6 +9,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  if (DEMO) throw new ApiError(DEMO_MESSAGE); // the Pages build has no server to ask
   const res = await fetch(path, init);
   if (!res.ok) {
     let detail: unknown = res.statusText;
@@ -47,7 +49,7 @@ export const api = {
   captureSetup: (body: {width_in:number;depth_in:number}) => post<SetupState>("/api/setup/capture", body),
   saveManualSetup: (body: {width_in:number;depth_in:number;job_id:string;corners_px:number[][]}) => post<SetupState>("/api/setup/manual", body),
   config: () => request<AppConfig>("/api/config"),
-  incidents: () => request<Incident[]>("/api/incidents"),
+  incidents: () => (DEMO ? Promise.resolve(demoIncidents()) : request<Incident[]>("/api/incidents")),
   reset: () => post<{ ok: boolean }>("/api/reset"),
   setReference: () => post<{ ok: boolean }>("/api/calibration/reference"),
   extractRule: (file: File) => {

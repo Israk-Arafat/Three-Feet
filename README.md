@@ -96,6 +96,14 @@ Click **Camera and plug** in the header instead of editing `.env` and restarting
 - **After a camera change** the detections and the empty-zone photo are cleared. Check that the danger zone still sits on the heater; redo **Heater setup** if the view moved.
 - Choices are saved to the git-ignored `data/connections.json` (it holds a camera password if you set one). Plain `python -m three_feet.app` starts live and uses them: with nothing saved it starts with "no camera" (and the plug from `PLUG_KIND` in `.env`, `dryrun` by default) until you add them here. Explicit flags win: `--source <address>` beats a saved camera (only `--source phone`, the default, uses it), and `--plug <kind>` beats a saved plug of a different kind. Otherwise the saved choice is used, then `.env`. The simulated scene (`--source sim`) has nothing to change.
 
+### Static demo (GitHub Pages)
+
+The repo publishes a **recorded demo** of the dashboard to GitHub Pages. It replays a simulated run (a blanket shutoff, a near miss, an unknown object) and cannot control a heater; the real app needs the Python server next to your camera and plug.
+
+- Once, in the repo settings, set **Pages → Source** to **GitHub Actions**. After that, `.github/workflows/pages.yml` rebuilds and deploys on every push to `main` that touches `web/`. The site is at `https://<user>.github.io/Three-Feet/`.
+- Build it locally: `cd web; npm run build:demo`, then serve `web/dist` (for example `python -m http.server --directory dist`). A normal `npm run build` replaces it with the real dashboard build.
+- Re-record the scenario after changing the engine, the simulator, or the UI text it shows: `python scripts/record_demo.py` (a few seconds, no hardware or key). It writes `web/demo-data/`, which is committed.
+
 ### Dashboard
 
 Build the web UI once (Node 20+), then run the server. Open `http://127.0.0.1:8000`. Add `?demo=1` to show a **Fault tests** button in the header that opens the fault-injection panel.

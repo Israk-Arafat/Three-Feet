@@ -12,14 +12,19 @@ import { RuleCard } from "./components/RuleCard";
 import { StateBanner } from "./components/StateBanner";
 import { Timeline } from "./components/Timeline";
 import { useAlerts } from "./hooks/useAlerts";
+import { useDemoState } from "./hooks/useDemoState";
 import { useLiveState } from "./hooks/useLiveState";
 import { api } from "./lib/api";
+import { DEMO } from "./lib/demo";
 import type { AppConfig } from "./types";
 
 const showDemo = new URLSearchParams(location.search).get("demo") === "1";
+const REPO_URL = "https://github.com/Israk-Arafat/Three-Feet";
+// Fixed for the lifetime of the page, so the hook order never changes.
+const useState_ = DEMO ? useDemoState : useLiveState;
 
 export default function App() {
-  const { state, events, connected, stale } = useLiveState();
+  const { state, events, connected, stale } = useState_();
   const alerts = useAlerts(state, stale);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
@@ -42,14 +47,20 @@ export default function App() {
   return (
     <div className="app-shell flex min-h-dvh flex-col gap-3 p-3">
       <header className="flex min-h-14 flex-wrap items-center gap-x-6 gap-y-2 border-b-2 border-ink pb-2 xl:h-14 xl:flex-nowrap">
-        <a href="/" className="flex shrink-0 items-center gap-3 whitespace-nowrap no-underline" aria-label="Three Feet, home">
-          <img src="/favicon.svg" width={32} height={32} alt="" />
+        <a href={import.meta.env.BASE_URL} className="flex shrink-0 items-center gap-3 whitespace-nowrap no-underline" aria-label="Three Feet, home">
+          <img src={`${import.meta.env.BASE_URL}favicon.svg`} width={32} height={32} alt="" />
           <span className="text-xl font-extrabold tracking-[-0.03em]">Three Feet</span>
         </a>
         <p className="hidden min-w-0 truncate text-sm text-muted lg:block">
           A clear view of the space around your heater.
         </p>
         <div className="ml-auto flex items-center gap-3">
+          {DEMO && <span className="tag tag--amber" title="A replay of a simulated run. No camera, heater, or plug is connected.">Recorded demo</span>}
+          {DEMO && (
+            <a className="btn" href={REPO_URL}>
+              View on GitHub
+            </a>
+          )}
           {simulated && <span className="tag tag--amber">Simulated scene</span>}
           {state?.mode === "replay" && <span className="tag">Replaying photos</span>}
           {showDemo && config?.demo && (
@@ -57,14 +68,18 @@ export default function App() {
               Fault tests
             </button>
           )}
-          <button type="button" className="btn" onClick={() => setConnectionsOpen(true)}>
-            <Icon name="link" size={18} />
-            Camera and plug
-          </button>
-          <button type="button" className="btn" onClick={openSetup}>
-            <Icon name="settings" size={18} />
-            Heater setup
-          </button>
+          {!DEMO && (
+            <button type="button" className="btn" onClick={() => setConnectionsOpen(true)}>
+              <Icon name="link" size={18} />
+              Camera and plug
+            </button>
+          )}
+          {!DEMO && (
+            <button type="button" className="btn" onClick={openSetup}>
+              <Icon name="settings" size={18} />
+              Heater setup
+            </button>
+          )}
           <button
             type="button"
             data-alerts-toggle
