@@ -53,7 +53,7 @@ export class AlertPolicy {
         title: "Three Feet: connection lost", priority: 1, delay: 3000, cooldown: 60_000, pattern: "degraded" });
     } else {
       const worst = state.objects[0];
-      if (state.state === "WARN" && state.countdown_s !== null && !state.degraded.length
+      if (state.state === "WARN" && state.countdown_s !== null && state.degraded.every(flag => flag === "API_DOWN")
           && worst?.status === "violation" && !worst.is_person) {
         const seconds = Math.ceil(state.countdown_s);
         conditions.push({ key: `warning:${worst.label.trim().toLowerCase()}`,

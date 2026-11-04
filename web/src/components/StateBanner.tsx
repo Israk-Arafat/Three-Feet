@@ -41,9 +41,14 @@ export function StateBanner({
   const live = state && !stale ? state : null;
   const blind = live ? live.degraded.length > 0 : true;
   const monitoring = live ? ["CLEAR", "WATCH", "WARN"].includes(live.state) : false;
+  const trackedWarning = live?.state === "WARN" && live.objects.some(o => o.status === "violation")
+    && live.degraded.every(flag => flag === "API_DOWN");
+  const weakCalibration = !!live && (live.calibration.distance_err_pct ?? 0) >= 50;
   const tone: Tone = !live ? "unknown" : live.reset_pending || live.off_pending ? "verify"
     : live.off_error && live.state === "OFF_REQUESTED" ? "alarm"
-    : blind && monitoring ? "unknown" : TONE[live.state] ?? "off";
+    : trackedWarning ? "warn"
+    : blind && monitoring ? "unknown"
+    : weakCalibration && live.state === "CLEAR" ? "watch" : TONE[live.state] ?? "off";
   const look = LOOK[tone];
   const needsSetup = !!live && !live.calibration.configured;
   const worst = live?.objects[0];
@@ -51,6 +56,7 @@ export function StateBanner({
     ? live.reset_cancelled ? "Cancelling power restoration" : "Turning heater on"
     : !state ? "Connecting to Three Feet"
     : needsSetup && tone === "unknown" ? "Set up your heater"
+    : weakCalibration && live?.state === "CLEAR" && tone === "watch" ? "Check heater calibration"
     : worst?.status === "pending" && (tone === "unknown" || tone === "watch") ? "Waiting for SAM identification"
     : worst?.is_person && tone === "watch" ? "Person detected"
     : tone === "watch" && worst?.status === "uncertain" ? "Outside zone, distance uncertain"
@@ -70,6 +76,8 @@ export function StateBanner({
       ? "Add the base dimensions to map its danger zone."
       : worst?.status === "pending" ? `Movement detected; no shutoff countdown until SAM identifies it. ${live.api.health_reason ?? ""}`
       : live.api.health_reason ?? capitalize(live.degraded.map(humanFlag).join(", ")) + ".";
+  } else if (weakCalibration && live.state === "CLEAR" && tone === "watch") {
+    detail = "Distance estimates are unreliable. Recheck the heater’s floor-contact corners and dimensions before trusting the zone.";
   } else if ((tone === "warn" || tone === "watch") && worst) {
     detail = `${capitalize(worst.label)}, ${measurement(worst.distance_in, worst.err_in)} from the ${worst.side}. Needs ${worst.required_in.toFixed(0)} in.`;
     if (tone === "watch") detail += worst.is_person ? " Person detected; no object-shutoff countdown."
@@ -140,11 +148,12 @@ export function StateBanner({
         {live && <p className="sign__power">
           Plug: {!live.power.reachable ? "unreachable" : live.power.on === null ? "unknown" : live.power.on ? "on" : "reports off"}
         </p>}
+        {weakCalibration && live?.state !== "CLEAR" && monitoring && <p className="sign__power">Calibration uncertainty is high; recheck the heater base.</p>}
       </div>
       <div className="sign__side">
-        {needsSetup && onSetup && (
+        {(needsSetup || weakCalibration && monitoring) && onSetup && (
           <button type="button" className="btn btn--primary self-center" onClick={onSetup}>
-            Set up heater base
+            {needsSetup ? "Set up heater base" : "Recheck heater base"}
           </button>
         )}
         {showCount && (

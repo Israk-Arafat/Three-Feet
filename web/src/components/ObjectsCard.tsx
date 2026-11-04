@@ -47,7 +47,9 @@ export function ObjectsCard({ state, className = "" }: { state: StateMessage | n
               : worst.status === "watch" ? "Just outside the red zone. No shutoff countdown."
               : "Outside the red zone and its watch band. No shutoff countdown."}
           </p>
-          {!state?.api.ok && worst.source !== "catchall" && <p className="text-sm text-state-warn">Last model observation; detection is degraded.</p>}
+          {!state?.api.ok && worst.source !== "catchall" && <p className="text-sm text-state-warn">{worst.status === "violation"
+            ? "Known object is still tracked; its shutoff countdown continues during the scene recheck."
+            : "Last model observation; detection is degraded."}</p>}
           <p className="text-base">
             From the {worst.side}. The rule needs <b className="font-extrabold">{worst.required_in.toFixed(0)} in</b>.
           </p>

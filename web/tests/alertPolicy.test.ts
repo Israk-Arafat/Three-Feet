@@ -76,6 +76,18 @@ test("a warning is immediate, with no repeat when track IDs or state flicker", (
   }
 });
 
+test("a tracked warning is announced once while SAM checks unrelated scene changes", () => {
+  const policy = new AlertPolicy();
+  const state = warning();
+  state.degraded = ["API_DOWN"];
+  state.api = { ok: false, last_error: null,
+    health_reason: "Scene changed or local tracking uncertain; waiting for model verification" } as StateMessage["api"];
+  assert.equal(policy.next(state, false, 0)!.priority, 3);
+  assert.equal(policy.next(state, false, 5000), null);
+  const brokenCamera = { ...state, degraded: ["CAMERA_LOST"] } as StateMessage;
+  assert.equal(new AlertPolicy().next(brokenCamera, false, 0), null);
+});
+
 test("noncritical speech waits; a failed OFF request can interrupt a warning", () => {
   const policy = new AlertPolicy();
   const camera = scene({ degraded: ["CAMERA_LOST"] });
