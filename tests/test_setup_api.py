@@ -77,7 +77,6 @@ def test_manual_applies_live_without_power_command(setup_client, monkeypatch):
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "ready" and engine.calib is calibration
     assert service.calibration_path.exists() and engine.switch.on_commands == 0
-    assert engine.probe is None
 
 
 def test_base_can_be_used_without_uncertainty_blocking_monitoring(setup_client, monkeypatch):

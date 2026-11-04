@@ -1,4 +1,4 @@
-"""End-to-end: simulated scene -> real calibration, geometry, state machine, plug, verification, incidents."""
+"""End-to-end: simulated scene -> real calibration, geometry, state machine, plug, incidents."""
 
 import threading
 from dataclasses import replace
@@ -39,7 +39,7 @@ def rig():
     calib = world.calibration()
     settings = Settings(_env_file=None, failsafe_after_s=30, dwell_high_s=10)
     engine = Engine(SimSource(world), SimPerception(world), plug, settings, calib=calib,
-                    rule=ClearanceRule(36, 36, 36, 36, "default"), probe=world.indicator_probe(calib),
+                    rule=ClearanceRule(36, 36, 36, 36, "default"),
                     mode="sim", clock=clock, events_dir=None)
     engine._workers.shutdown()
     engine._workers = SyncExecutor()
@@ -74,43 +74,36 @@ def test_cords_and_room_fixtures_are_never_measured(rig, monkeypatch):
     assert tick(15).state.value == "CLEAR" and plug.off_commands == 0
 
 
-def test_blanket_shutoff_confirmed_by_two_signals(rig):
+def test_blanket_sends_off_request_and_keeps_guarded_reset(rig):
     engine, world, plug, tick = rig
-    assert tick().state.value == "CLEAR"
-    world.place("blanket", "near")
-    d = tick()
-    assert d.state.value == "WARN"
-    obj = engine.state_message["objects"][0]
-    assert obj["label"] == "fleece blanket" and obj["status"] == "violation"
-    assert obj["distance_in"] == pytest.approx(12, abs=0.5) and obj["side"] == "front"
-    d = tick(10)
-    assert d.state.value == "VERIFYING" and plug.off_commands == 1
-    d = tick()
-    assert d.state.value == "OFF_CONFIRMED"
-    assert d.signals == {"power_off": True, "indicator_off": True}
-    assert {"warn", "shutoff", "confirmed", "report"} <= set(kinds(engine))
-    inc = next(iter(engine.incidents.values()))
-    assert inc.outcome == "confirmed" and inc.report_source == "template"
-    assert "came within 12." in inc.report and "front" in inc.report
-
-    assert engine.reset() is False  # blanket still in the zone
-    world.place("blanket", "home")
+    assert tick().state.value == 'CLEAR'
+    world.place('blanket', 'near')
+    assert tick().state.value == 'WARN'
+    assert tick(10).state.value == 'OFF_REQUESTED'
+    assert plug.off_commands == 1
+    assert {'warn', 'shutoff', 'off_request', 'report'} <= set(kinds(engine))
+    incident = next(iter(engine.incidents.values()))
+    assert incident.outcome == 'requested'
+    assert 'An OFF command was sent' in incident.report
+    assert 'signals' not in engine.state_message and 'indicator_configured' not in engine.state_message
+    for _ in range(4):
+        assert tick(10).state.value == 'OFF_REQUESTED'
+    assert plug.off_commands == 1  # no follow-up confirmation or telemetry retries
+    assert not engine.reset()
+    world.place('blanket', 'home')
     tick()
-    assert engine.state_message["can_reset"] is True
-    assert engine.reset() is True
-    assert tick().state.value == "CLEAR"
-    assert plug.status().power_w == 1500
-    assert plug.on_commands == 1
-    assert engine.reset() is False  # repeated requests must not send another ON command
-    assert plug.on_commands == 1
+    assert engine.reset()
+    assert tick().state.value == 'CLEAR' and plug.on_commands == 1
+    assert not engine.reset()
+
 
 
 def shutoff_then_clear(rig):
     engine, world, plug, tick = rig
     world.place("blanket", "near")
     assert tick().state.value == "WARN"
-    assert tick(10).state.value == "VERIFYING"
-    assert tick().state.value == "OFF_CONFIRMED"
+    assert tick(10).state.value == "OFF_REQUESTED"
+    assert tick().state.value == "OFF_REQUESTED"
     world.place("blanket", "home")
     tick()
     assert engine.state_message["can_reset"] is True
@@ -120,7 +113,7 @@ def shutoff_then_clear(rig):
 def test_clear_zone_does_not_automatically_restore_power(rig):
     engine, _, plug, tick = shutoff_then_clear(rig)
     for _ in range(3):
-        assert tick(1).state.value == "OFF_CONFIRMED"
+        assert tick(1).state.value == "OFF_REQUESTED"
     assert plug.status().on is False
     assert plug.on_commands == 0
 
@@ -144,7 +137,7 @@ def test_reset_never_energizes_without_a_reliable_clear_zone(rig, fault):
     tick(5)
     assert engine.state_message["can_reset"] is False
     assert engine.reset() is False
-    assert engine.sm.state.value == "OFF_CONFIRMED"
+    assert engine.sm.state.value == "OFF_REQUESTED"
     assert plug.on_commands == 0
 
 
@@ -152,7 +145,7 @@ def test_reset_refuses_a_stale_observation_even_before_next_tick(rig):
     engine, _, plug, _ = shutoff_then_clear(rig)
     engine.clock.t += 5
     assert engine.reset() is False
-    assert engine.sm.state.value == "OFF_CONFIRMED"
+    assert engine.sm.state.value == "OFF_REQUESTED"
     assert plug.on_commands == 0
 
 
@@ -165,13 +158,13 @@ def test_reset_preserves_shutoff_latch_when_on_command_fails(rig, monkeypatch):
     monkeypatch.setattr(plug, "turn_on", fail_on)
     with pytest.raises(RuntimeError):
         engine.reset()
-    assert engine.sm.state.value in ("VERIFYING", "OFF_CONFIRMED")
+    assert engine.sm.state.value == "OFF_REQUESTED"
     assert plug.status().on is False
     assert "reset" not in kinds(engine)
-    assert tick().state.value == "OFF_CONFIRMED"
+    assert tick().state.value == "OFF_REQUESTED"
 
 
-def test_uncertain_on_and_failed_compensating_off_retries_then_alarms(rig, monkeypatch):
+def test_uncertain_on_retries_failed_off_commands_and_reports_error(rig, monkeypatch):
     engine, _, plug, tick = shutoff_then_clear(rig)
     original_on = plug.turn_on
     off_attempts = []
@@ -188,14 +181,14 @@ def test_uncertain_on_and_failed_compensating_off_retries_then_alarms(rig, monke
     monkeypatch.setattr(plug, "turn_off", failed_off)
     with pytest.raises(RuntimeError):
         engine.reset()
-    assert engine.sm.state.value == "VERIFYING"
+    assert engine.sm.state.value == "OFF_REQUESTED"
     assert plug.status().on is True
     for _ in range(3):
         assert tick(5).state.value != "CLEAR"
-    assert engine.sm.state.value == "OFF_UNCONFIRMED"
-    assert len(off_attempts) >= engine.sm.cfg.max_off_retries + 1
+    assert engine.sm.state.value == "OFF_REQUESTED"
+    assert len(off_attempts) >= engine.settings.off_command_retries + 1
     assert plug.on_commands == 1
-    assert "alarm" in kinds(engine)
+    assert "error" in kinds(engine)
     assert "reset" not in kinds(engine)
 
 
@@ -233,7 +226,7 @@ def test_object_entering_during_slow_reset_cuts_power_without_stalling_ticks(rig
         world.place("blanket", "near")
         tick_thread.start()
         assert tick_finished.wait(2), "a slow ON command blocked the safety loop"
-        assert engine.sm.state.value in ("VERIFYING", "OFF_CONFIRMED")
+        assert engine.sm.state.value == "OFF_REQUESTED"
         assert engine.state_message["can_reset"] is False
         assert engine.state_message["reset_pending"] is True
         assert engine.state_message["reset_cancelled"] is True
@@ -248,12 +241,12 @@ def test_object_entering_during_slow_reset_cuts_power_without_stalling_ticks(rig
     assert not reset_thread.is_alive()
     assert True not in outcomes
     assert outcomes == [False] or (len(errors) == 1 and isinstance(errors[0], RuntimeError))
-    assert engine.sm.state.value in ("VERIFYING", "OFF_CONFIRMED")
+    assert engine.sm.state.value == "OFF_REQUESTED"
     assert plug.status().on is False
     assert plug.on_commands == 1
     assert plug.off_commands >= 3  # original shutoff, immediate cancellation, and late-ON compensation
     assert "reset" not in kinds(engine)
-    assert tick().state.value == "OFF_CONFIRMED"
+    assert tick().state.value == "OFF_REQUESTED"
     assert engine.state_message["reset_pending"] is False
 
 
@@ -272,18 +265,40 @@ def test_camera_cut_is_unknown_then_failsafe(rig):
     assert d.banner.startswith("UNKNOWN") and "CAMERA_LOST" in d.degraded
     assert engine.state_message["camera"]["healthy"] is False
     d = tick(30)
-    assert d.state.value == "VERIFYING" and plug.off_commands == 1
+    assert d.state.value == "OFF_REQUESTED" and plug.off_commands == 1
 
 
-def test_stuck_relay_alarms(rig):
+def test_stuck_relay_does_not_start_a_confirmation_workflow(rig):
     engine, world, plug, tick = rig
     plug.stuck = True
+    world.place('blanket', 'near')
+    tick()
+    assert tick(10).state.value == 'OFF_REQUESTED'
+    for _ in range(3):
+        assert tick(10).state.value == 'OFF_REQUESTED'
+    assert plug.off_commands == 1 and plug.status().on is True
+    assert next(iter(engine.incidents.values())).outcome == 'requested'
+    assert 'confirmed' not in kinds(engine)
+
+
+def test_failed_off_request_retries_command_and_records_failure(rig, monkeypatch):
+    engine, world, plug, tick = rig
+    attempts = []
+
+    def fail_off():
+        attempts.append(True)
+        raise ConnectionError("plug unavailable")
+
+    monkeypatch.setattr(plug, "turn_off", fail_off)
     world.place("blanket", "near")
     tick()
-    tick(10)
-    for _ in range(3):
-        d = tick(5)
-    assert d.state.value == "OFF_UNCONFIRMED" and "alarm" in kinds(engine)
+    assert tick(10).state.value == "OFF_REQUESTED"
+    assert len(attempts) == engine.settings.off_command_retries + 1
+    assert engine.state_message["off_pending"] is False
+    assert "plug unavailable" in engine.state_message["off_error"]
+    incident = next(iter(engine.incidents.values()))
+    assert incident.outcome == "failed" and "OFF command failed" in incident.report
+
 
 
 def test_api_outage_degrades_to_unknown_high_hazard(rig):
@@ -304,107 +319,40 @@ def test_calibration_drift_detected(rig):
     assert "CALIBRATION_DRIFT" in d.degraded
 
 
-@pytest.mark.parametrize("light_configured", [True, False])
-def test_relay_only_plug_end_to_end(light_configured):
-    """A plug without a meter (Cync): shutoff confirmed by the relay report plus the camera's power light."""
+def test_relay_only_plug_sends_off_without_camera_light_setup():
     from three_feet.safety.actuator import PlugStatus
-
     class RelayOnlyPlug(DryRunPlug):
         def status(self):
-            st = super().status()
-            return PlugStatus(st.reachable, st.on, None, metering=False)
-
+            value = super().status()
+            return PlugStatus(value.reachable, value.on, None, metering=False)
     clock = FakeClock()
     plug = RelayOnlyPlug(settle_s=0)
     world = SimWorld(plug, clock=clock, speed_in_s=1000)
-    calib = world.calibration()
-    engine = Engine(SimSource(world), SimPerception(world), plug, Settings(_env_file=None), calib=calib,
-                    rule=ClearanceRule(36, 36, 36, 36, "default"),
-                    probe=world.indicator_probe(calib) if light_configured else None,
-                    mode="sim", clock=clock, events_dir=None)
+    engine = Engine(SimSource(world), SimPerception(world), plug, Settings(_env_file=None),
+                    calib=world.calibration(), rule=ClearanceRule(36,36,36,36,'default'),
+                    mode='sim', clock=clock, events_dir=None)
     engine._workers.shutdown()
     engine._workers = SyncExecutor()
     engine.plug.stop()
-
-    def tick(seconds=0.1):
-        clock.t += seconds
-        engine.plug.refresh()
-        return engine.tick()
-
     try:
-        world.place("blanket", "near")
-        assert tick().state.value == "WARN"
-        assert engine.state_message["power"]["metering"] is False
-        assert engine.state_message["power"]["watts"] is None
-        assert "PLUG_UNREACHABLE" not in engine.state_message["degraded"]
-        assert tick(10).state.value == "VERIFYING"
-        d = tick()
-        if light_configured:
-            assert d.state.value == "OFF_CONFIRMED"
-            assert any("plug reports off" in e["text"] for e in engine.events_since(0))
-        else:
-            for _ in range(3):
-                d = tick(5)
-            assert d.state.value == "OFF_UNCONFIRMED"
-            assert d.signals == {"power_off": True, "indicator_off": None}
-            assert "confirmed" not in kinds(engine)
-            assert next(iter(engine.incidents.values())).outcome == "unconfirmed"
+        world.place('blanket','near')
+        clock.t += .1
+        engine.plug.refresh()
+        assert engine.tick().state.value == 'WARN'
+        clock.t += 10
+        assert engine.tick().state.value == 'OFF_REQUESTED'
+        assert plug.off_commands == 1 and plug.status().on is False
+        assert next(iter(engine.incidents.values())).outcome == 'requested'
     finally:
         engine.stop()
 
 
-def test_missing_light_probe_never_confirms_and_reports_missing_evidence(rig):
-    engine, world, _, tick = rig
-    engine.probe = None
-    world.place("blanket", "near")
-    assert tick().state.value == "WARN"
-    assert tick(10).state.value == "VERIFYING"
-    for _ in range(3):
-        decision = tick(5)
-    assert decision.state.value == "OFF_UNCONFIRMED"
-    assert decision.signals == {"power_off": True, "indicator_off": None}
-    assert "confirmed" not in kinds(engine)
-    incident = next(iter(engine.incidents.values()))
-    assert incident.outcome == "unconfirmed" and incident.signals["indicator_off"] is None
-    assert "could NOT be confirmed" in incident.report
-    # Late evidence updates the same incident instead of leaving its badge/report contradictory.
-    engine.probe = world.indicator_probe(engine.calib)
-    assert tick().state.value == "OFF_CONFIRMED"
-    assert incident.outcome == "confirmed" and incident.signals["indicator_off"] is True
-    assert "confirmed by independent signals" in incident.report
-    assert incident.events[-1]["kind"] == "confirmed"
 
 
-def test_slow_old_report_cannot_overwrite_new_confirmation(rig):
-    from types import SimpleNamespace
-    from three_feet.engine import Incident
-
-    engine, _, _, _ = rig
-    started, release = threading.Event(), threading.Event()
-
-    def slow_report(*args):
-        started.set()
-        release.wait(3)
-        return "Old unconfirmed report"
-
-    engine.wonder = SimpleNamespace(incident_report=slow_report)
-    incident = Incident("test", engine.clock(), "test", outcome="unconfirmed")
-    thread = threading.Thread(target=engine._write_report, args=(incident,), daemon=True)
-    thread.start()
-    try:
-        assert started.wait(1)
-        with engine._events_lock:
-            incident.report_generation += 1
-            incident.outcome = "confirmed"
-            incident.report = "New confirmed report"
-    finally:
-        release.set()
-        thread.join(2)
-    assert not thread.is_alive()
-    assert incident.report == "New confirmed report"
 
 
-def test_live_measurement_keeps_uncertainty_for_boundary_decisions(rig, monkeypatch):
+
+def test_live_outside_measurement_is_uncertain_without_starting_shutoff(rig, monkeypatch):
     engine, world, _, tick = rig
     original = engine.cmap.measure
 
@@ -414,10 +362,27 @@ def test_live_measurement_keeps_uncertainty_for_boundary_decisions(rig, monkeypa
 
     monkeypatch.setattr(engine.cmap, "measure", boundary_measurement)
     world.place("blanket", "near")
-    assert tick().state.value == "WARN"
+    assert tick().state.value == "WATCH"
     obj = engine.state_message["objects"][0]
-    assert obj["err_in"] == 1 and obj["status"] == "violation"
+    assert obj["err_in"] == 1 and obj["status"] == "uncertain"
     assert obj["distance_in"] > obj["required_in"]
+    assert tick(60).state.value == "WATCH"
+
+
+def test_actual_overlap_has_priority_over_uncertain_outside_object(rig, monkeypatch):
+    from three_feet.geometry import Measurement
+    from three_feet.engine import MeasuredObject
+
+    engine, _, _, tick = rig
+    decision = tick()
+    mask = np.zeros(engine.cmap.slack.shape, bool)
+    outside = MeasuredObject(PerceivedObject("drill", "power drill", mask),
+        Measurement(20.2, 15, 5.2, 11, "back", (0,0), (0,0)), "clear")
+    inside = MeasuredObject(PerceivedObject("cloth", "blanket", mask),
+        Measurement(14, 15, -1, .2, "front", (0,0), (0,0)), "violation")
+    engine._measured = [outside, inside]
+    result = engine._message(decision, True, 1500, engine.plug.status)
+    assert result["objects"][0]["label"] == "blanket"
 
 
 @pytest.mark.parametrize("reason", ["stale", "budget", "failed"])

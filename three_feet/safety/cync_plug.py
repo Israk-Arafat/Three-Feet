@@ -1,7 +1,6 @@
 """GE Cync smart plug driver (cloud) via the reverse-engineered `pycync` library.
 
-The plug has no power meter, so its status reports the relay state only (`metering=False`); the camera's
-power-light check is the independent confirmation. Log in once with `scripts/cync_login.py`, which saves
+The plug has no power meter, so its status reports the relay state only (`metering=False`); the dashboard shows that report separately from command outcomes. Log in once with `scripts/cync_login.py`, which saves
 tokens (never the password) to data/cync_token.json. Only one connection per Cync account is allowed:
 opening the Cync phone app disconnects this driver for about 10 seconds.
 """

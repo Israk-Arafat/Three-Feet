@@ -2,7 +2,7 @@
 
 Renders an oblique "overhead camera" view of a floor with real ArUco markers, a heater whose power light
 and glow follow a DryRunPlug, and objects that move on a script. Ground-truth masks stand in for SAM, so
-everything downstream (calibration, geometry, state machine, verification, UI) is the real code.
+everything downstream (calibration, geometry, state machine, plug control, UI) is the real code.
 Everything produced here is labeled SIMULATED in the UI.
 """
 
@@ -20,7 +20,6 @@ from .calibration import ARUCO_DICT_ID, CalibrationFile, calibrate_from_markers
 from .geometry import FloorCalibration, HeaterFootprint
 from .perception.tracking import PerceivedObject
 from .safety.actuator import DryRunPlug
-from .safety.verifier import IndicatorProbe
 from .sources import Frame
 
 PX_PER_IN = 8.0
@@ -63,7 +62,7 @@ def default_objects() -> list[SimObject]:
                   spots={"near": (80, 67.5)}),
         SimObject("box", "cardboard box", (16, 12), (70, 125, 175), "high",
                   "Corrugated cardboard ignites easily.", home=(140, 80),
-                  spots={"watch": (134, 42), "near": (112, 42)}),
+                  spots={"watch": (132, 42), "near": (112, 42)}),
         SimObject("shoe", "unknown object", (11, 4.5), (45, 45, 45), "high",
                   "Not recognized — treated as high hazard.", home=(60, 16),
                   spots={"near": (60, 16)}, source="catchall", visible=False),
@@ -198,9 +197,6 @@ class SimWorld:
         cal.indicator_roi = (int(x) - 10, int(y) - 10, 20, 20)
         cal.indicator_threshold = 120.0
         return cal
-
-    def indicator_probe(self, cal: CalibrationFile) -> IndicatorProbe:
-        return IndicatorProbe(cal.indicator_roi, cal.indicator_threshold)  # type: ignore[arg-type]
 
 
 class SimSource:

@@ -23,7 +23,7 @@ def engine():
     calibration = world.calibration()
     engine = Engine(SimSource(world), SimPerception(world), plug, Settings(_env_file=None),
                     calib=calibration, rule=ClearanceRule(36, 36, 36, 36, "default"),
-                    probe=world.indicator_probe(calibration), mode="sim", events_dir=None)
+                    mode="sim", events_dir=None)
     world.place("blanket", "near")
     world.objects["blanket"].pos = world.objects["blanket"].target
     engine.tick()

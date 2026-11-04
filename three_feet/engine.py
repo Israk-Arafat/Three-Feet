@@ -1,4 +1,4 @@
-"""The live loop: frames -> perception -> inches -> safety state machine -> plug -> verification -> UI state.
+"""The live loop: frames -> perception -> inches -> safety state machine -> plug -> UI state.
 
 Runs on its own thread at `tick_hz`. Slow work (model calls, plug HTTP, incident reports) happens on other
 threads so a stalled API or plug can never stall the safety loop.
@@ -28,7 +28,7 @@ from .geometry import ClearanceMap, Clearances, Measurement
 from .overlay import PAPER_BGR, STATUS_BGR, draw_measured, put_label
 from .perception.catchall import MotionGate, ZoneChangeDetector
 from .perception.meta_client import CostMeter
-from .perception.tracking import PerceivedObject
+from .perception.tracking import PerceivedObject, is_person_label
 from .perception.wonder import ClearanceRule, WonderClient
 from .safety.actuator import PlugStatus, PowerSwitch
 from .safety.state_machine import (
@@ -40,10 +40,8 @@ from .safety.state_machine import (
     State,
     ZoneObject,
 )
-from .safety.verifier import IndicatorProbe
 from .sources import FrameSource, MjpegHttpSource
 
-PERSON_LABELS = {"person", "people", "man", "woman", "child", "human"}
 # A heater always has a cord, and walls and trim are part of the room: neither is something placed near the heater.
 CORD_WORDS = {"cord", "cords", "cable", "cables", "wire", "wires"}
 FIXTURE_WORDS = {"wall", "walls", "drywall", "baseboard", "baseboards", "skirting", "molding", "moulding", "trim",
@@ -128,19 +126,19 @@ class Incident:
     started_t: float
     reason: str
     events: list[dict] = field(default_factory=list)
-    outcome: str | None = None  # confirmed | unconfirmed
+    outcome: str | None = None  # requested | failed
     ended_t: float | None = None
     report: str | None = None
     report_source: str | None = None  # muse-wonder | template
-    signals: dict | None = None
     report_generation: int = 0
+    trigger: dict | None = None
 
     def to_dict(self) -> dict:
         return {
             "id": self.id, "started_t": self.started_t, "ended_t": self.ended_t, "reason": self.reason,
             "outcome": self.outcome, "report": self.report, "report_source": self.report_source,
             "events": self.events,
-            "signals": self.signals,
+            "trigger": self.trigger,
         }
 
 
@@ -165,7 +163,6 @@ class Engine:
         *,
         calib: CalibrationFile | None,
         rule: ClearanceRule,
-        probe: IndicatorProbe | None = None,
         wonder: WonderClient | None = None,
         meter: CostMeter | None = None,
         mode: str = "live",  # live | sim | replay
@@ -176,7 +173,7 @@ class Engine:
         events_dir: Path | None = RUNS_DIR / "events",
     ) -> None:
         self.source, self.perception, self.switch = source, perception, switch
-        self.settings, self.calib, self.rule, self.probe = settings, calib, rule, probe
+        self.settings, self.calib, self.rule = settings, calib, rule
         self.wonder, self.meter = wonder, meter or CostMeter(settings.budget_usd_per_hour)
         self.mode, self.demo, self.source_label = mode, demo, source_label
         self.clock, self.tick_hz = clock, tick_hz
@@ -185,6 +182,10 @@ class Engine:
         self._reset_lock = threading.Lock()
         self._reset_pending = False
         self._reset_cancelled = False
+        self._off_status_lock = threading.Lock()
+        self._off_io_lock = threading.Lock()
+        self._off_pending = 0
+        self._off_error: str | None = None
         self._last_observation: Observation | None = None
         self.plug = PlugMonitor(switch)
 
@@ -231,8 +232,6 @@ class Engine:
 
         self.log("system", f"Three Feet started ({mode}{', demo controls on' if demo else ''})",
                  {"source": source_label, "plug": getattr(switch, "name", "?")})
-        if probe is None:
-            self.log("system", "Power-light check not configured: independent shutoff confirmation is unavailable")
 
     # -- lifecycle ----------------------------------------------------------------------
     def start(self) -> None:
@@ -289,8 +288,6 @@ class Engine:
             if self._reset_pending:
                 raise RuntimeError("Wait for power restoration to finish before changing the heater setup")
             self.calib = calib
-            self.probe = (IndicatorProbe(calib.indicator_roi, calib.indicator_threshold)
-                          if calib.indicator_roi and calib.indicator_threshold is not None else None)
             self.catchall = None  # A reference from the previous view cannot explain this floor plane.
             self._build_geometry()
             self._calibration_ok = True
@@ -346,10 +343,9 @@ class Engine:
         old.close()
 
     def check_plug_change(self) -> None:
-        """Refuse a plug change while a shutoff is being verified, because that proof belongs to the current plug."""
-        if self._reset_pending or self.sm.state in (State.VERIFYING, State.OFF_UNCONFIRMED):
-            raise ConnectionChangeBlocked("A shutoff is being verified on the current plug. Wait for it to "
-                                          "finish, then change the plug.")
+        """Keep queued power commands tied to the plug they were requested for."""
+        if self._reset_pending or self._off_pending:
+            raise ConnectionChangeBlocked("Wait for the current power command to finish before changing the plug.")
 
     def replace_switch(self, switch: PowerSwitch) -> None:
         """Swap the power plug live."""
@@ -416,21 +412,32 @@ class Engine:
             self.perception.on_frame(frame, t, motion, zone_view)
             perceived = self.perception.current()
             if catchall is not None and catchall.reference is not None:
+                had_pending = bool(self._catchall_objs)
                 explained = np.zeros(cmap.slack.shape, bool)
                 for o in perceived if self.perception.api_ok else []:
                     explained |= o.mask
                 self._catchall_objs = [
-                    PerceivedObject(f"u{i}", "unknown object", d.mask, "high",
-                                    "Not recognized — treated as high hazard.", "catchall")
+                    PerceivedObject(f"u{i}", "unclassified movement", d.mask, "high",
+                                    "Waiting for SAM to identify this change before starting a shutoff countdown.", "catchall")
                     for i, d in enumerate(catchall.unknown_blobs(frame.image, explained), 1)
                 ]
+                if self._catchall_objs and not had_pending:
+                    request_check = getattr(self.perception, "request_check", None)
+                    if callable(request_check):
+                        request_check()
             measured = []
             for o in [*perceived, *self._catchall_objs]:
                 if is_ignored_item(o):
                     continue
                 m = cmap.measure(o.mask)
                 if m is not None:
-                    measured.append(MeasuredObject(o, m, m.status(self.settings.watch_margin_in)))
+                    status = m.status(self.settings.watch_margin_in)
+                    if status == "violation":
+                        if is_person_label(o.label) or o.extra.get("on_person"):
+                            status = "watch"
+                        elif o.source == "catchall" or not self.perception.api_ok:
+                            status = "pending"
+                    measured.append(MeasuredObject(o, m, status))
             self._measured = measured
         elif not camera_ok or not calibration_ok:
             self._measured = []
@@ -441,15 +448,15 @@ class Engine:
         if power_w is not None and t - self._last_power_sample >= 0.25:
             self._power_history.append(round(power_w, 1))
             self._last_power_sample = t
-        indicator = self.probe.is_on(frame.image) if (self.probe and camera_ok and frame is not None) else None
 
         zone_objects = tuple(
             ZoneObject(mo.obj.track_id, mo.obj.label, mo.m.slack_in, mo.m.err_in,
                        mo.obj.hazard if mo.obj.hazard in ("high", "medium", "low") else "high",  # type: ignore[arg-type]
-                       mo.obj.label.lower() in PERSON_LABELS)
+                       is_person_label(mo.obj.label) or bool(mo.obj.extra.get("on_person")),
+                       awaiting_model=mo.obj.source == "catchall")
             for mo in self._measured
         )
-        obs = Observation(t, zone_objects, camera_ok, calibration_ok, self.perception.api_ok, power_w, indicator,
+        obs = Observation(t, zone_objects, camera_ok, calibration_ok, self.perception.api_ok, power_w,
                           plug_on)
         with self._state_lock:
             self._last_observation = obs
@@ -457,8 +464,8 @@ class Engine:
                 self._reset_cancelled = True
                 self.sm.request_shutoff(t, "Power restoration cancelled: the clearance zone or monitoring changed")
                 self.log("reset_cancelled", "Monitoring changed during power restoration; requesting OFF immediately")
-                self._workers.submit(self._turn_off)
-            decision = self.sm.step(obs, allow_power_restored=not self._reset_pending)
+                self._queue_off()
+            decision = self.sm.step(obs, allow_power_restored=not self._reset_pending and not self._off_pending)
             self._handle(decision)
         self._render(frame, decision, camera_ok, art)
         self.state_message = self._message(decision, camera_ok, power_w, status)
@@ -491,69 +498,76 @@ class Engine:
                     inc = Incident(f"i{next(self._incident_ids)}", d.t, d.reason)
                     with self._events_lock:
                         inc.events = [e for e in self._events
-                                      if d.t - e["t"] <= 120 and e["kind"] in ("warn", "watch", "degraded", "rule")]
+                                      if d.t - e["t"] <= 120 and (
+                                          e["kind"] in ("degraded", "rule")
+                                          or e["kind"] == "warn" and worst is not None
+                                          and e.get("data", {}).get("track_id") == worst.track_id)]
+                    inc.trigger = dict(self._closest) if self._closest else None
                     self._open_incident = inc
                     self.incidents[inc.id] = inc
                 closest = self._closest
                 extra = (f"; closest {closest['distance_in']:.1f} in from {closest['side']} "
                          f"(needs {closest['required_in']:.0f} in)" if closest else "")
-                self.log("shutoff", f"Power cut sent to plug ({self.switch.name}): {d.reason}{extra}",
+                self.log("shutoff", f"Power off requested ({self.switch.name}): {d.reason}{extra}",
                          {"incident": self._open_incident.id, "closest": closest})
-                self._workers.submit(self._turn_off)
-            elif action is Action.CONFIRMED:
-                n = sum(1 for v in d.signals.values() if v)
-                if self.plug.status.metering:
-                    text = f"Heater OFF — confirmed by {n}/2 signals (plug meter and camera light)"
-                else:
-                    text = ("Heater OFF — plug reports off and the camera sees the power light dark"
-                            if d.signals.get("indicator_off") else "Plug reports off — shutoff not independently confirmed")
-                event = self.log("confirmed", text, {"signals": d.signals})
-                self._close_incident("confirmed", d.signals, event)
-            elif action is Action.ALARM:
-                self.log("alarm", "Shutoff NOT confirmed after retries — check the heater now", {"signals": d.signals})
-                self._close_incident("unconfirmed", d.signals)
+                self._queue_off(self._open_incident)
             elif action is Action.DEGRADED_ALERT:
                 self.log("degraded", "Degraded: " + ", ".join(d.degraded).replace("_", " ").lower(),
                          {"degraded": list(d.degraded)})
             elif action is Action.POWER_RESTORED:
-                self.log("alarm", "Heater switched back on without a reset; monitoring resumed",
-                         {"signals": d.signals})
+                self.log("alarm", "Plug reports power on again without a reset; monitoring resumed")
 
     def _track_closest(self, d: Decision) -> None:
         """Closest approach while warning, so the shutoff log and report cite the worst moment, not the first."""
-        if d.state in (State.CLEAR, State.WATCH) and not d.actions:
+        if d.state in (State.CLEAR, State.WATCH):
             self._closest = None
             return
         if d.state is not State.WARN and Action.TURN_OFF not in d.actions:
             return
-        violating = [mo for mo in self._measured if mo.status == "violation"]
+        violating = [mo for mo in self._measured if mo.status == "violation"
+                     and d.worst is not None and mo.obj.track_id == d.worst.track_id]
         if not violating:
             return
         mo = min(violating, key=lambda x: x.m.slack_in)
-        if self._closest is None or mo.m.slack_in < self._closest["slack_in"]:
-            self._closest = {"label": mo.obj.label, "distance_in": round(mo.m.distance_in, 1),
+        if (self._closest is None or self._closest.get("track_id") != mo.obj.track_id
+                or mo.m.slack_in < self._closest["slack_in"]):
+            self._closest = {"track_id": mo.obj.track_id, "label": mo.obj.label, "source": mo.obj.source,
+                             "distance_in": round(mo.m.distance_in, 1),
                              "err_in": round(mo.m.err_in, 1), "side": mo.m.side,
                              "required_in": mo.m.required_in, "slack_in": round(mo.m.slack_in, 1)}
 
-    def _turn_off(self) -> None:
-        try:
-            self.switch.turn_off()
-            self.plug.refresh()
-        except Exception as exc:
-            self.log("error", f"Plug command failed: {type(exc).__name__}: {exc}")
+    def _queue_off(self, incident: Incident | None = None) -> None:
+        with self._off_status_lock:
+            self._off_pending += 1
+        self._workers.submit(self._turn_off, incident, True)
 
-    def _close_incident(self, outcome: str, signals: dict, confirmation_event: dict | None = None) -> None:
-        inc = self._open_incident
-        if inc is None:
-            # A missing signal may arrive after retries have already produced an unconfirmed report.
-            inc = next(reversed(self.incidents.values()), None)
-            if outcome != "confirmed" or inc is None or inc.outcome != "unconfirmed":
-                return
-            if confirmation_event is not None:
-                inc.events.append(confirmation_event)
+    def _turn_off(self, incident: Incident | None = None, queued: bool = False) -> None:
+        if not queued:
+            with self._off_status_lock:
+                self._off_pending += 1
+        outcome = "failed"
+        try:
+            with self._off_io_lock:
+                for attempt in range(self.settings.off_command_retries + 1):
+                    try:
+                        self.switch.turn_off()
+                        self.plug.refresh()
+                        self._off_error = None
+                        outcome = "requested"
+                        self.log("off_request", "OFF command sent to plug", {"attempt": attempt + 1})
+                        break
+                    except Exception as exc:
+                        self._off_error = f"{type(exc).__name__}: {exc}"
+                        self.log("error", f"OFF command failed (attempt {attempt + 1}): {self._off_error}")
+            if incident is not None:
+                self._close_incident(incident, outcome)
+        finally:
+            with self._off_status_lock:
+                self._off_pending -= 1
+
+    def _close_incident(self, inc: Incident, outcome: str) -> None:
         with self._events_lock:
             inc.outcome, inc.ended_t = outcome, self.clock()
-            inc.signals = dict(signals)
             inc.report_generation += 1
             inc.report = inc.report_source = None
         self._open_incident = None
@@ -565,7 +579,7 @@ class Engine:
         report, source = None, None
         if self.wonder is not None:
             try:
-                report = self.wonder.incident_report(snapshot.events, self.rule)
+                report = self.wonder.incident_report(snapshot.events, self.rule, trigger=snapshot.trigger)
                 source = "muse-wonder"
             except Exception as exc:
                 self.log("error", f"Incident report failed: {type(exc).__name__}: {exc}")
@@ -573,23 +587,23 @@ class Engine:
             report, source = self._template_report(snapshot), "template"
         with self._events_lock:
             if inc.report_generation != snapshot.report_generation:
-                return  # A slow, older report must not overwrite late confirmation evidence.
+                return
             inc.report, inc.report_source = report, source
         self.log("report", f"Incident report ready ({source})", {"incident": inc.id})
 
     def _template_report(self, inc: Incident) -> str:
         when = datetime.fromtimestamp(inc.started_t, ZoneInfo(self.settings.display_timezone)).strftime("%I:%M:%S %p %Z").lstrip("0")
         shutoff = next((e for e in inc.events if e["kind"] == "shutoff"), None)
-        closest = (shutoff or {}).get("data", {}).get("closest")
+        closest = inc.trigger or (shutoff or {}).get("data", {}).get("closest")
         if closest:
             article = "an" if closest["label"][:1].lower() in tuple("aeiou") else "a"
             what = (f"{article} {closest['label']} came within {closest['distance_in']:.1f} in of "
                     f"the heater's {closest['side']}, where the rule requires {closest['required_in']:.0f} in")
         else:
             what = inc.reason
-        outcome = ("Shutoff was confirmed by independent signals." if inc.outcome == "confirmed"
-                   else "Shutoff could NOT be confirmed; a person was alerted to check the heater.")
-        return f"At {when}, {what}. Power was cut ({inc.reason}). {outcome}"
+        outcome = ("An OFF command was sent to the plug." if inc.outcome == "requested"
+                   else "The OFF command failed after retries; check the heater now.")
+        return f"At {when}, {what}. {outcome}"
 
     def _reset_view_ok(self) -> bool:
         """A missing or stale observation never establishes a clear zone."""
@@ -601,14 +615,15 @@ class Engine:
             and obs.calibration_ok and self.calib is not None and self.cmap is not None
             and obs.api_ok and self.perception.api_ok
             and self.plug.status.reachable
-            and all(mo.status != "violation" for mo in self._measured)
+            and all(mo.status not in ("violation", "pending") for mo in self._measured)
         )
 
     def _can_reset(self, *, allow_pending: bool = False) -> bool:
         return bool(
             (allow_pending or not self._reset_pending)
+            and not self._off_pending
             and not (self._reset_pending and self._reset_cancelled)
-            and self.sm.state in (State.OFF_CONFIRMED, State.OFF_UNCONFIRMED)
+            and self.sm.state is State.OFF_REQUESTED
             and self._reset_view_ok()
         )
 
@@ -640,7 +655,7 @@ class Engine:
                 # An ON timeout can mean power was restored: request OFF rather than retry ON.
                 with self._state_lock:
                     self._reset_cancelled = True
-                    self.sm.request_shutoff(self.clock(), "Power restoration failed; verifying shutdown")
+                    self.sm.request_shutoff(self.clock(), "Power restoration failed; requesting OFF")
                 self._turn_off()
                 self.log("error", f"Reset failed while restoring power: {type(exc).__name__}: {exc}")
                 raise RuntimeError(f"Could not restore heater power: {exc}") from exc
@@ -783,12 +798,14 @@ class Engine:
     def _message(self, d: Decision, camera_ok: bool, power_w: float | None, status: PlugStatus) -> dict:
         times = list(self._frame_times)
         fps = (len(times) - 1) / (times[-1] - times[0]) if len(times) > 1 and times[-1] > times[0] else 0.0
-        objects = sorted(self._measured, key=lambda mo: mo.m.slack_in - mo.m.err_in)
+        priority = {"violation": 0, "pending": 1, "uncertain": 2, "watch": 2, "clear": 3}
+        objects = sorted(self._measured, key=lambda mo: (priority[mo.status], mo.m.slack_in))
         rule = self.rule
         return {
             "type": "state",
             "t": d.t,
             "time_zone": self.settings.display_timezone,
+            "watch_margin_in": self.settings.watch_margin_in,
             "mode": self.mode,
             "state": d.state.value,
             "banner": d.banner,
@@ -804,6 +821,7 @@ class Engine:
                 "required_in": mo.m.required_in, "side": mo.m.side, "status": mo.status,
                 "hazard": mo.obj.hazard, "why": mo.obj.why, "assessing": mo.obj.assessing,
                 "material": mo.obj.extra.get("material"),
+                "is_person": is_person_label(mo.obj.label) or bool(mo.obj.extra.get("on_person")),
             } for mo in objects],
             "rule": {
                 "front_in": rule.front_in, "back_in": rule.back_in, "left_in": rule.left_in,
@@ -814,8 +832,8 @@ class Engine:
             },
             "power": {"reachable": status.reachable, "on": status.on, "watts": power_w, "metering": status.metering,
                       "history": list(self._power_history), "plug": getattr(self.switch, "name", "?")},
-            "signals": d.signals,
-            "indicator_configured": self.probe is not None,
+            "off_pending": bool(self._off_pending),
+            "off_error": self._off_error,
             "camera": {"fps": round(fps, 1), "healthy": camera_ok, **self.camera_info},
             "calibration": {"configured": self.cmap is not None,
                             "method": self.calib.method if self.calib else None,
@@ -827,6 +845,8 @@ class Engine:
                     "last_error": self.perception.last_error, "concepts": list(self.perception.concepts),
                     "health_reason": getattr(self.perception, "health_reason", None),
                     "result_age_s": getattr(self.perception, "result_age_s", None),
+                    "verification_age_s": getattr(self.perception, "verification_age_s", None),
+                    "local_tracking": getattr(self.perception, "local_tracking_active", False),
                     "frame_index": getattr(self.perception, "last_frame_index", None),
                     "spend": self.meter.snapshot()},
             "open_incident": self._open_incident.id if self._open_incident else None,

@@ -44,7 +44,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--kind", help="override PLUG_KIND (dryrun | cync)")
     action = ap.add_mutually_exclusive_group()
-    action.add_argument("--off", action="store_true", help="cut power and time the confirmation")
+    action.add_argument("--off", action="store_true", help="cut power and time the plug report")
     action.add_argument("--on", action="store_true", help="turn on for manual plug testing; use a lamp only")
     ap.add_argument("--seconds", type=float, default=10.0)
     args = ap.parse_args()
@@ -81,14 +81,14 @@ def main() -> int:
         while time.time() < end:
             st = switch.status()
             if args.off and is_off(st, s.off_power_w):
-                print(f"  confirmed off after {time.perf_counter() - sent:.2f} s ({describe(st)})")
+                print(f"  plug reports off after {time.perf_counter() - sent:.2f} s ({describe(st)})")
                 return 0
             if args.on and is_on(st, s.off_power_w):
-                print(f"  confirmed on after {time.perf_counter() - sent:.2f} s ({describe(st)})")
+                print(f"  plug reports on after {time.perf_counter() - sent:.2f} s ({describe(st)})")
                 return 0
             time.sleep(0.25)
         state = "off" if args.off else "on"
-        print(f"  NOT confirmed {state} within {args.seconds:.0f} s ({describe(switch.status())})")
+        print(f"  Plug did not report {state} within {args.seconds:.0f} s ({describe(switch.status())})")
         return 1
     finally:
         close = getattr(switch, "close", None)

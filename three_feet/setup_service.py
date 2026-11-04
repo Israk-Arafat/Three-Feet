@@ -175,7 +175,7 @@ class SetupService:
         }
         size = (image.shape[1], image.shape[0])
         points = validate_base_candidate(candidate, size, min_area=4, min_edge=1)
-        cal = calibrate_from_heater(size, points, width, depth, samples=0)
+        cal = calibrate_from_heater(size, points, width, depth)
         if not np.isfinite(cal.floor.H).all() or not np.isfinite(cal.floor.rms_in) or not np.isfinite(cal.distance_err_frac):
             raise ValueError("Those points do not define usable floor geometry. Select the base corners again.")
         self._state["quality"] = {**(self._state.get("quality") or {}),

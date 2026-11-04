@@ -9,7 +9,7 @@ from three_feet.safety.state_machine import (
 
 CFG = SafetyConfig(
     watch_margin_in=6, dwell_s={"high": 10, "medium": 20, "low": 60},
-    failsafe_enabled=True, failsafe_after_s=30, off_power_w=5, verify_timeout_s=5, max_off_retries=2,
+    failsafe_enabled=True, failsafe_after_s=30, off_power_w=5,
 )
 ON = 1500.0
 
@@ -18,8 +18,8 @@ def blanket(slack, hazard="high", err=1.0, tid="1", person=False):
     return ZoneObject(tid, "person" if person else "blanket", slack, err, hazard, person)
 
 
-def obs(t, *objects, power=ON, indicator=True, camera=True, calib=True, api=True):
-    return Observation(t, tuple(objects), camera, calib, api, power, indicator)
+def obs(t, *objects, power=ON, camera=True, calib=True, api=True):
+    return Observation(t, tuple(objects), camera, calib, api, power)
 
 
 def drive_to_shutoff(sm, t0=0.0):
@@ -40,10 +40,28 @@ def test_watch_near_boundary_alerts_once():
     assert d2.state is State.WATCH and d2.actions == ()
 
 
-def test_error_bar_is_conservative():
-    # 0.5 in outside the rule but error is 1 in -> counts as a violation
-    d = SafetyStateMachine(CFG).step(obs(0, blanket(0.5, err=1.0)))
-    assert d.state is State.WARN
+def test_outside_error_overlap_is_amber_without_shutoff():
+    sm = SafetyStateMachine(SafetyConfig(watch_margin_in=2))
+    for t in (0, 10, 60):
+        d = sm.step(obs(t, blanket(.5, err=11)))
+        assert d.state is State.WATCH and d.countdown_s is None
+        assert Action.TURN_OFF not in d.actions
+
+
+def test_drill_outside_two_inch_band_never_triggers_shutoff():
+    sm = SafetyStateMachine(SafetyConfig(watch_margin_in=2))
+    for t in (0, 10, 60):
+        d = sm.step(obs(t, blanket(20.2 - 15, err=11)))
+        assert d.state is State.CLEAR and d.countdown_s is None
+        assert Action.TURN_OFF not in d.actions
+
+
+def test_leaving_red_zone_cancels_countdown_even_if_error_overlaps():
+    sm = SafetyStateMachine(SafetyConfig(watch_margin_in=2))
+    assert sm.step(obs(0, blanket(-1))).state is State.WARN
+    assert sm.step(obs(9, blanket(1, err=11))).state is State.WATCH
+    d = sm.step(obs(60, blanket(1, err=11)))
+    assert d.state is State.WATCH and Action.TURN_OFF not in d.actions
 
 
 def test_warn_then_shutoff_after_dwell():
@@ -53,7 +71,7 @@ def test_warn_then_shutoff_after_dwell():
     d = sm.step(obs(9.9, blanket(-10)))
     assert d.state is State.WARN and Action.TURN_OFF not in d.actions
     d = sm.step(obs(10, blanket(-10)))
-    assert d.state is State.VERIFYING and Action.TURN_OFF in d.actions
+    assert d.state is State.OFF_REQUESTED and Action.TURN_OFF in d.actions
 
 
 def test_leaving_zone_cancels_countdown():
@@ -68,14 +86,14 @@ def test_low_hazard_waits_longer_but_still_shuts_off():
     sm = SafetyStateMachine(CFG)
     sm.step(obs(0, blanket(-10, "low")))
     assert sm.step(obs(30, blanket(-10, "low"))).state is State.WARN
-    assert sm.step(obs(60, blanket(-10, "low"))).state is State.VERIFYING
+    assert sm.step(obs(60, blanket(-10, "low"))).state is State.OFF_REQUESTED
 
 
 def test_api_down_forces_high_hazard():
     sm = SafetyStateMachine(CFG)
     sm.step(obs(0, blanket(-10, "low"), api=False))
     d = sm.step(obs(10, blanket(-10, "low"), api=False))
-    assert d.state is State.VERIFYING and "API_DOWN" in d.degraded
+    assert d.state is State.OFF_REQUESTED and "API_DOWN" in d.degraded
 
 
 def test_person_in_zone_warns_but_never_cuts_power():
@@ -85,37 +103,32 @@ def test_person_in_zone_warns_but_never_cuts_power():
         assert d.state is State.WATCH and Action.TURN_OFF not in d.actions
 
 
-def test_confirmed_requires_both_signals():
+def test_off_request_is_immediate_and_has_no_confirmation_countdown():
+    sm = SafetyStateMachine(CFG)
+    d = drive_to_shutoff(sm)
+    assert d.state is State.OFF_REQUESTED and d.countdown_s is None
+    for t in (11,15,20,100):
+        d = sm.step(obs(t))
+        assert d.state is State.OFF_REQUESTED
+        assert Action.TURN_OFF not in d.actions
+
+
+
+
+
+def test_unreachable_plug_keeps_request_latched_and_reports_degraded():
     sm = SafetyStateMachine(CFG)
     drive_to_shutoff(sm)
-    d = sm.step(obs(11, power=0.0, indicator=True))  # watts dropped but light still on
-    assert d.state is State.VERIFYING
-    d = sm.step(obs(12, power=0.0, indicator=False))
-    assert d.state is State.OFF_CONFIRMED and Action.CONFIRMED in d.actions
-    assert d.signals == {"power_off": True, "indicator_off": True}
+    d = sm.step(obs(11, power=None))
+    assert d.state is State.OFF_REQUESTED and 'PLUG_UNREACHABLE' in d.degraded
 
-
-def test_unconfirmed_retries_then_alarms():
-    sm = SafetyStateMachine(CFG)
-    drive_to_shutoff(sm)  # t=10, TURN_OFF
-    assert Action.TURN_OFF in sm.step(obs(15)).actions  # retry 1
-    assert Action.TURN_OFF in sm.step(obs(20)).actions  # retry 2
-    d = sm.step(obs(25))
-    assert d.state is State.OFF_UNCONFIRMED and Action.ALARM in d.actions
-
-
-def test_plug_unreachable_cannot_confirm():
-    sm = SafetyStateMachine(CFG)
-    drive_to_shutoff(sm)
-    d = sm.step(obs(11, power=None, indicator=False))
-    assert d.state is State.VERIFYING and "PLUG_UNREACHABLE" in d.degraded
 
 
 def test_latched_off_until_reset_and_reset_requires_clear_zone():
     sm = SafetyStateMachine(CFG)
     drive_to_shutoff(sm)
-    sm.step(obs(11, power=0.0, indicator=False))
-    assert sm.step(obs(100, power=0.0, indicator=False)).state is State.OFF_CONFIRMED
+    sm.step(obs(11, power=0.0))
+    assert sm.step(obs(100, power=0.0)).state is State.OFF_REQUESTED
     assert sm.reset(zone_clear=False) is False
     assert sm.reset(zone_clear=True) is True
     assert sm.step(obs(101)).state is State.CLEAR
@@ -124,13 +137,13 @@ def test_latched_off_until_reset_and_reset_requires_clear_zone():
 def test_power_back_on_while_latched_resumes_monitoring():
     sm = SafetyStateMachine(CFG)
     drive_to_shutoff(sm)
-    sm.step(obs(11, blanket(-10), power=0.0, indicator=False))
-    assert sm.state is State.OFF_CONFIRMED
+    sm.step(obs(11, blanket(-10), power=0.0))
+    assert sm.state is State.OFF_REQUESTED
     # Someone switches the heater on with the blanket still there: never keep saying "off".
-    d = sm.step(obs(20, blanket(-10), power=ON, indicator=True))
+    d = sm.step(obs(20, blanket(-10), power=ON))
     assert Action.POWER_RESTORED in d.actions
     assert d.state is State.WARN and Action.WARN_ALERT in d.actions
-    assert sm.step(obs(30, blanket(-10))).state is State.VERIFYING
+    assert sm.step(obs(30, blanket(-10))).state is State.OFF_REQUESTED
 
 
 def test_camera_lost_is_unknown_and_failsafe_cuts_power():
@@ -139,7 +152,7 @@ def test_camera_lost_is_unknown_and_failsafe_cuts_power():
     assert d.banner == "UNKNOWN — not safe" and Action.DEGRADED_ALERT in d.actions
     assert sm.step(obs(29, camera=False)).state is State.CLEAR
     d = sm.step(obs(30, camera=False))
-    assert d.state is State.VERIFYING and Action.TURN_OFF in d.actions
+    assert d.state is State.OFF_REQUESTED and Action.TURN_OFF in d.actions
 
 
 def test_failsafe_skipped_when_heater_already_off():
@@ -152,7 +165,7 @@ def test_camera_lost_during_warn_keeps_countdown():
     sm = SafetyStateMachine(CFG)
     sm.step(obs(0, blanket(-10)))
     assert sm.step(obs(5, camera=False)).state is State.WARN
-    assert sm.step(obs(10, camera=False)).state is State.VERIFYING
+    assert sm.step(obs(10, camera=False)).state is State.OFF_REQUESTED
 
 
 def test_calibration_drift_counts_as_blind():
@@ -162,40 +175,40 @@ def test_calibration_drift_counts_as_blind():
 
 
 # Plugs without a power meter (e.g. GE Cync) report only their relay state.
-def relay_obs(t, *objects, plug_on=True, indicator=True, camera=True):
-    return Observation(t, tuple(objects), camera, True, True, None, indicator, plug_on)
+def relay_obs(t, *objects, plug_on=True, camera=True):
+    return Observation(t, tuple(objects), camera, True, True, None, plug_on)
 
 
-def test_relay_only_plug_confirms_with_relay_and_light():
+def test_relay_only_plug_does_not_need_light_evidence():
     sm = SafetyStateMachine(CFG)
     assert sm.step(relay_obs(0, blanket(-10))).state is State.WARN
-    assert sm.step(relay_obs(10, blanket(-10))).state is State.VERIFYING
-    d = sm.step(relay_obs(11, plug_on=False, indicator=True))
-    assert d.state is State.VERIFYING  # relay says off but the light is still on
-    d = sm.step(relay_obs(12, plug_on=False, indicator=False))
-    assert d.state is State.OFF_CONFIRMED and d.signals == {"power_off": True, "indicator_off": True}
-    assert "PLUG_UNREACHABLE" not in d.degraded
+    assert sm.step(relay_obs(10, blanket(-10))).state is State.OFF_REQUESTED
+    d = sm.step(relay_obs(11, plug_on=False))
+    assert d.state is State.OFF_REQUESTED and not d.actions
 
 
-def test_relay_only_plug_unknown_state_is_unreachable_and_never_confirms():
+
+def test_relay_only_missing_status_is_degraded():
     sm = SafetyStateMachine(CFG)
     sm.step(relay_obs(0, blanket(-10)))
     sm.step(relay_obs(10, blanket(-10)))
-    d = sm.step(relay_obs(11, plug_on=None, indicator=False))
-    assert d.state is State.VERIFYING and "PLUG_UNREACHABLE" in d.degraded
+    d = sm.step(relay_obs(11, plug_on=None))
+    assert d.state is State.OFF_REQUESTED and 'PLUG_UNREACHABLE' in d.degraded
+
 
 
 def test_relay_only_failsafe_skipped_when_plug_reports_off():
     sm = SafetyStateMachine(CFG)
     sm.step(relay_obs(0, camera=False, plug_on=False))
     assert sm.step(relay_obs(60, camera=False, plug_on=False)).state is State.CLEAR
-    assert sm.step(relay_obs(61, camera=False, plug_on=True)).countdown_s is not None
+    d = sm.step(relay_obs(61, camera=False, plug_on=True))
+    assert d.state is State.OFF_REQUESTED and Action.TURN_OFF in d.actions
 
 
 def test_relay_only_power_restored_while_latched():
     sm = SafetyStateMachine(CFG)
     sm.step(relay_obs(0, blanket(-10)))
     sm.step(relay_obs(10, blanket(-10)))
-    assert sm.step(relay_obs(11, blanket(-10), plug_on=False, indicator=False)).state is State.OFF_CONFIRMED
-    d = sm.step(relay_obs(20, blanket(-10), plug_on=True, indicator=True))
+    assert sm.step(relay_obs(11, blanket(-10), plug_on=False)).state is State.OFF_REQUESTED
+    d = sm.step(relay_obs(20, blanket(-10), plug_on=True))
     assert Action.POWER_RESTORED in d.actions and d.state is State.WARN

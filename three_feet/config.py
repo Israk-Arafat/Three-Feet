@@ -31,7 +31,9 @@ class Settings(BaseSettings):
     wonder_model: str = "muse-wonder-1.0"
     api_timeout_s: float = 30.0
     perception_max_age_s: float = Field(default=5.0, gt=0)
-    perception_idle_refresh_s: float = Field(default=2.0, gt=0)
+    perception_idle_refresh_s: float = Field(default=30.0, gt=0)
+    perception_verification_max_age_s: float = Field(default=45.0, gt=0)
+    perception_inventory_refresh_s: float = Field(default=60.0, gt=0)
     display_timezone: str = "America/New_York"
 
     @field_validator("display_timezone")
@@ -51,16 +53,15 @@ class Settings(BaseSettings):
     plug_kind: str = "dryrun"
     plug_name: str = ""  # Cync: the plug's name in the Cync app (blank = the only plug on the account)
 
-    default_clearance_in: float = 36.0
-    watch_margin_in: float = 6.0
+    default_clearance_in: float = 15.0
+    watch_margin_in: float = Field(default=2.0, ge=0, le=24)
     dwell_high_s: float = 10.0
     dwell_medium_s: float = 20.0
     dwell_low_s: float = 60.0
     failsafe_enabled: bool = True
     failsafe_after_s: float = 30.0
     off_power_w: float = 5.0
-    verify_timeout_s: float = 5.0
-    max_off_retries: int = 2
+    off_command_retries: int = Field(default=2, ge=0, le=5)
 
     mask_edge_px: float = 2.0
     parallax_in: float = 0.5

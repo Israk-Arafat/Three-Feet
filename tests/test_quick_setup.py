@@ -76,6 +76,18 @@ def test_heater_quick_setup_measures_distance():
     assert right.side == "right" and right.distance_in == pytest.approx(8, abs=0.3)
 
 
+def test_dashboard_setup_computes_error_instead_of_using_fifty_percent_fallback():
+    from three_feet.setup_service import SetupService
+
+    service = SetupService.__new__(SetupService)
+    service._state = {"quality": None}
+    cam = PhoneCamera()
+    corners = cam.project(heater_floor_corners(W_IN, D_IN))
+    cal = service._geometry(np.zeros((IMG[1], IMG[0], 3), np.uint8), corners, W_IN, D_IN,
+                            allow_uncertain=True)
+    assert .03 <= cal.distance_err_frac < .3
+
+
 @pytest.mark.parametrize("true_fov", [58.0, 74.0])
 def test_wrong_fov_guess_stays_inside_the_error_bar(true_fov):
     cam = PhoneCamera(hfov_deg=true_fov)

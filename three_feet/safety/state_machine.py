@@ -3,7 +3,7 @@
 Principles:
 - Models can only make the system more cautious (unknown/uncertain hazard -> "high").
 - Missing information is never treated as safe.
-- Shutoff is confirmed only by independent signals; power stays off until a human resets.
+- An OFF request latches monitoring until a human resets or the plug reports a later restart.
 - Restoring power requires an explicit, guarded user reset in the engine.
 """
 
@@ -22,17 +22,13 @@ class State(StrEnum):
     CLEAR = "CLEAR"
     WATCH = "WATCH"
     WARN = "WARN"
-    VERIFYING = "VERIFYING"
-    OFF_CONFIRMED = "OFF_CONFIRMED"
-    OFF_UNCONFIRMED = "OFF_UNCONFIRMED"
+    OFF_REQUESTED = "OFF_REQUESTED"
 
 
 class Action(StrEnum):
     WATCH_ALERT = "WATCH_ALERT"
     WARN_ALERT = "WARN_ALERT"
     TURN_OFF = "TURN_OFF"
-    CONFIRMED = "CONFIRMED"
-    ALARM = "ALARM"  # shutoff could not be confirmed: a person must check the heater now
     DEGRADED_ALERT = "DEGRADED_ALERT"
     POWER_RESTORED = "POWER_RESTORED"  # heater drew power again while latched off; monitoring resumed
 
@@ -45,6 +41,7 @@ class ZoneObject:
     err_in: float
     hazard: HazardLevel = "high"
     is_person: bool = False
+    awaiting_model: bool = False
 
 
 @dataclass(frozen=True)
@@ -55,19 +52,16 @@ class Observation:
     calibration_ok: bool = True
     api_ok: bool = True
     power_w: float | None = None  # None = no meter reading (unreachable, or a plug without metering)
-    indicator_on: bool | None = None  # None = no indicator ROI or unreadable
     plug_on: bool | None = None  # relay state the plug reports; used when it has no power meter
 
 
 @dataclass(frozen=True)
 class SafetyConfig:
-    watch_margin_in: float = 6.0
+    watch_margin_in: float = 2.0
     dwell_s: dict = field(default_factory=lambda: {"high": 10.0, "medium": 20.0, "low": 60.0})
     failsafe_enabled: bool = True
     failsafe_after_s: float = 30.0
     off_power_w: float = 5.0
-    verify_timeout_s: float = 5.0
-    max_off_retries: int = 2
 
     @classmethod
     def from_settings(cls, s) -> "SafetyConfig":
@@ -77,8 +71,6 @@ class SafetyConfig:
             failsafe_enabled=s.failsafe_enabled,
             failsafe_after_s=s.failsafe_after_s,
             off_power_w=s.off_power_w,
-            verify_timeout_s=s.verify_timeout_s,
-            max_off_retries=s.max_off_retries,
         )
 
 
@@ -90,7 +82,6 @@ class Decision:
     actions: tuple[Action, ...]
     countdown_s: float | None
     degraded: tuple[str, ...]
-    signals: dict  # {"power_off": bool|None, "indicator_off": bool|None}
     worst: ZoneObject | None
 
     @property
@@ -106,9 +97,10 @@ class SafetyStateMachine:
         self.state = State.CLEAR
         self._warn_since: float | None = None
         self._warn_deadline = 0.0
+        self._violation_since: dict[str, float] = {}
+        self._warn_track: str | None = None
         self._blind_since: float | None = None
-        self._verify_started: float | None = None
-        self._retries = 0
+        self._plug_was_off = False
         self._prev_degraded: set[str] = set()
         self._reason = "Zone clear"
 
@@ -126,49 +118,45 @@ class SafetyStateMachine:
         else:
             self._blind_since = None
 
-        signals = self._signals(obs)
         countdown: float | None = None
         worst: ZoneObject | None = None
 
-        if self.state is State.VERIFYING:
-            countdown = self._step_verifying(obs, signals, actions)
-        elif self.state is State.OFF_UNCONFIRMED:
-            if self._confirmed(signals):
-                self._enter(State.OFF_CONFIRMED, "Shutoff confirmed (late)")
-                actions.append(Action.CONFIRMED)
-        elif self.state is State.OFF_CONFIRMED and (signals["power_off"] is not False or not allow_power_restored):
-            pass  # latched until a human resets
-        else:
-            if self.state is State.OFF_CONFIRMED:
-                # The plug meter shows power again without a reset: never keep claiming "off".
-                self._enter(State.CLEAR, "Heater switched back on without a reset")
-                self._warn_since = self._verify_started = None
-                self._retries = 0
+        if self.state is State.OFF_REQUESTED:
+            reported_off = self._reported_off(obs)
+            if reported_off is True:
+                self._plug_was_off = True
+            elif reported_off is False and self._plug_was_off and allow_power_restored:
+                self._enter(State.CLEAR, "Plug reports power on again without a reset")
+                self._warn_since = None
+                self._plug_was_off = False
                 actions.append(Action.POWER_RESTORED)
+                countdown, worst = self._step_monitoring(obs, blind, actions)
+        else:
             countdown, worst = self._step_monitoring(obs, blind, actions)
 
         return Decision(obs.t, self.state, self._reason, tuple(actions), countdown,
-                        tuple(degraded), signals, worst)
+                        tuple(degraded), worst)
 
     def reset(self, zone_clear: bool) -> bool:
         """Human reset after shutoff. Refused unless the zone is currently clear."""
-        if self.state not in (State.OFF_CONFIRMED, State.OFF_UNCONFIRMED) or not zone_clear:
+        if self.state is not State.OFF_REQUESTED or not zone_clear:
             return False
         self._enter(State.CLEAR, "Reset by user")
-        self._warn_since = self._verify_started = None
-        self._retries = 0
+        self._warn_since = None
+        self._violation_since.clear()
+        self._warn_track = None
+        self._plug_was_off = False
         return True
 
     # -- internals ----------------------------------------------------------------
     def request_shutoff(self, t: float, reason: str) -> None:
-        """Enter normal shutdown verification after a cancelled or ambiguous power restore."""
-        self._enter(State.VERIFYING, reason)
-        self._verify_started = t
-        self._retries = 0
+        """Latch the OFF request after a violation or cancelled power restoration."""
+        self._enter(State.OFF_REQUESTED, reason)
+        self._plug_was_off = False
 
     def _step_monitoring(self, obs: Observation, blind: bool, actions: list[Action]):
         cfg = self.cfg
-        heater_maybe_on = self._signals(obs)["power_off"] is not True
+        heater_maybe_on = self._reported_off(obs) is not True
 
         if blind:
             # Can't see: keep any running countdown (assume the object is still there).
@@ -176,13 +164,13 @@ class SafetyStateMachine:
                 remaining = self._warn_deadline - obs.t
                 if remaining <= 0:
                     self._start_shutoff(obs.t, "Object was in zone and camera view was lost", actions)
-                    return cfg.verify_timeout_s, None
+                    return None, None
                 return remaining, None
             if cfg.failsafe_enabled and heater_maybe_on:
                 remaining = self._blind_since + cfg.failsafe_after_s - obs.t  # type: ignore[operator]
                 if remaining <= 0:
                     self._start_shutoff(obs.t, f"Fail-safe: no reliable view for {cfg.failsafe_after_s:.0f}s", actions)
-                    return cfg.verify_timeout_s, None
+                    return None, None
                 self._reason = "Camera view unavailable — fail-safe countdown"
                 return remaining, None
             self._reason = "Camera view unavailable"
@@ -194,74 +182,53 @@ class SafetyStateMachine:
         ]
         statuses = {o.track_id: classify(o.slack_in, o.err_in, cfg.watch_margin_in) for o in objects}
         violating = [o for o in objects if statuses[o.track_id] == "violation"]
-        watching = [o for o in objects if statuses[o.track_id] == "watch"]
-        candidates = [o for o in violating if not o.is_person]
-        worst = min(objects, key=lambda o: o.slack_in - o.err_in, default=None)
+        watching = [o for o in objects if statuses[o.track_id] in ("watch", "uncertain")]
+        pending = [o for o in violating if not o.is_person and (o.awaiting_model or not obs.api_ok)]
+        candidates = [o for o in violating if not o.is_person and not o.awaiting_model and obs.api_ok]
+        worst = min(objects, key=lambda o: (statuses[o.track_id] != "violation", o.slack_in), default=None)
+        eligible = {o.track_id for o in candidates}
+        self._violation_since = {key: since for key, since in self._violation_since.items() if key in eligible}
+        for obj in candidates:
+            self._violation_since.setdefault(obj.track_id, obs.t)
 
         if candidates:
-            if self.state is not State.WARN:
+            target = min(candidates, key=lambda o: self._violation_since[o.track_id] + cfg.dwell_s[o.hazard])
+            if self.state is not State.WARN or self._warn_track != target.track_id:
                 self._enter(State.WARN, "")
-                self._warn_since = obs.t
                 actions.append(Action.WARN_ALERT)
-            dwell = min(cfg.dwell_s[o.hazard] for o in candidates)
-            self._warn_deadline = self._warn_since + dwell  # type: ignore[operator]
-            target = min(candidates, key=lambda o: o.slack_in - o.err_in)
+            self._warn_track = target.track_id
+            self._warn_since = self._violation_since[target.track_id]
+            dwell = cfg.dwell_s[target.hazard]
+            self._warn_deadline = self._warn_since + dwell
             self._reason = f"{target.label} inside clearance zone ({target.hazard} hazard)"
             remaining = self._warn_deadline - obs.t
             if remaining <= 0:
                 self._start_shutoff(obs.t, f"{target.label} stayed in zone for {dwell:.0f}s", actions)
-                return cfg.verify_timeout_s, target
+                return None, target
             return remaining, target
 
         self._warn_since = None
+        self._warn_track = None
         if violating or watching:
             if self.state is not State.WATCH:
                 actions.append(Action.WATCH_ALERT)
-            self._enter(State.WATCH, "Object near clearance zone" if watching else "Person in zone")
+            uncertain = any(statuses[o.track_id] == "uncertain" for o in watching)
+            self._enter(State.WATCH, "Movement in zone; waiting for SAM identification" if pending
+                        else "Outside zone; distance uncertain" if uncertain
+                        else "Object near clearance zone" if watching else "Person in zone")
         else:
             self._enter(State.CLEAR, "Zone clear")
         return None, worst
-
-    def _step_verifying(self, obs: Observation, signals: dict, actions: list[Action]) -> float | None:
-        if self._confirmed(signals):
-            n = sum(1 for v in signals.values() if v)
-            self._enter(State.OFF_CONFIRMED, f"Shutoff confirmed ({n}/2 signals)")
-            actions.append(Action.CONFIRMED)
-            return None
-        elapsed = obs.t - self._verify_started  # type: ignore[operator]
-        if elapsed < self.cfg.verify_timeout_s:
-            return self.cfg.verify_timeout_s - elapsed
-        if self._retries < self.cfg.max_off_retries:
-            self._retries += 1
-            self._verify_started = obs.t
-            actions.append(Action.TURN_OFF)
-            self._reason = f"Not confirmed; retry {self._retries}/{self.cfg.max_off_retries}"
-            return self.cfg.verify_timeout_s
-        self._enter(State.OFF_UNCONFIRMED, "Shutoff NOT confirmed — check the heater now")
-        actions.append(Action.ALARM)
-        return None
 
     def _start_shutoff(self, t: float, reason: str, actions: list[Action]) -> None:
         self.request_shutoff(t, reason)
         actions.append(Action.TURN_OFF)
 
-    def _signals(self, obs: Observation) -> dict:
-        """power_off comes from the plug's meter when it has one, otherwise from the relay state it reports."""
+    def _reported_off(self, obs: Observation) -> bool | None:
+        """Basic plug telemetry, used for fail-safe timing and detecting an external restart."""
         if obs.power_w is not None:
-            power_off: bool | None = obs.power_w < self.cfg.off_power_w
-        elif obs.plug_on is not None:
-            power_off = not obs.plug_on
-        else:
-            power_off = None
-        return {
-            "power_off": power_off,
-            "indicator_off": None if obs.indicator_on is None else not obs.indicator_on,
-        }
-
-    def _confirmed(self, signals: dict) -> bool:
-        if signals["power_off"] is not True:
-            return False
-        return signals["indicator_off"] is True
+            return obs.power_w < self.cfg.off_power_w
+        return None if obs.plug_on is None else not obs.plug_on
 
     @staticmethod
     def _degraded(obs: Observation) -> list[str]:

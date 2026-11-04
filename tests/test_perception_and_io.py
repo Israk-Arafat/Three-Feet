@@ -7,7 +7,6 @@ from three_feet.perception.sam import parse_sam_output
 from three_feet.perception.spark import HazardAssessment, conservative_level, merge_concepts
 from three_feet.perception.wonder import rule_from_extraction
 from three_feet.safety.actuator import DryRunPlug
-from three_feet.safety.verifier import IndicatorProbe
 from three_feet.sources import split_jpegs
 
 # Sample output line from https://dev.meta.ai/docs/sam/reading-segmentation (320x334 source).
@@ -99,12 +98,6 @@ def test_dryrun_plug():
     assert plug.on_commands == 1
 
 
-def test_indicator_probe():
-    on = np.zeros((50, 50, 3), np.uint8)
-    on[20:25, 20:25] = (0, 0, 255)
-    off = np.zeros((50, 50, 3), np.uint8)
-    probe = IndicatorProbe.calibrate((15, 15, 15, 15), [on], [off])
-    assert probe.is_on(on) is True and probe.is_on(off) is False and probe.is_on(None) is None
 
 
 def test_catchall_flags_unexplained_change_in_zone():
