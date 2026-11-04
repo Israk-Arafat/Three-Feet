@@ -1,9 +1,11 @@
 import { capitalize, measurement } from "../lib/format";
+import { hasApproximateScale } from "../lib/calibrationQuality";
 import type { StateMessage } from "../types";
 import { HazardTag, Panel, StatusWord } from "./ui";
 
 export function ObjectsCard({ state, className = "" }: { state: StateMessage | null; className?: string }) {
   const simulated = state?.mode === "sim";
+  const approximateScale = hasApproximateScale(state);
   const objects = state?.objects ?? [];
   const worst = objects[0];
   const others = objects.slice(1, 4);
@@ -34,8 +36,9 @@ export function ObjectsCard({ state, className = "" }: { state: StateMessage | n
             {worst.is_person ? <span className="tag">Person</span> : <StatusWord status={worst.status} />}
           </div>
           <div className="plate px-4 py-3">
+            {approximateScale && <p className="mb-2 text-sm">Approximate distance</p>}
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <span className="figure num text-5xl leading-none">{worst.distance_in.toFixed(1)}</span>
+              <span className="figure num text-5xl leading-none">{approximateScale ? "≈ " : ""}{worst.distance_in.toFixed(1)}</span>
               <span className="num text-lg">± {worst.err_in.toFixed(1)} in</span>
             </div>
           </div>

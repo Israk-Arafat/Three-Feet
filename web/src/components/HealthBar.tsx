@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "../lib/api";
 import { usd } from "../lib/format";
+import { hasApproximateScale } from "../lib/calibrationQuality";
 import type { StateMessage } from "../types";
 import { Swatch } from "./ui";
 
@@ -25,6 +26,7 @@ export function HealthBar({ state, connected, onSetup }: { state: StateMessage |
     );
   }
   const { camera, calibration: cal, api: a } = state;
+  const approximateScale = hasApproximateScale(state);
   const spend = a.spend;
   const cameraValue = camera.healthy
     ? [
@@ -38,7 +40,7 @@ export function HealthBar({ state, connected, onSetup }: { state: StateMessage |
   const calValue = !cal.configured
     ? "not calibrated"
     : cal.method === "heater"
-    ? `heater base${cal.distance_err_pct !== null ? ` · ${cal.distance_err_pct}% distance uncertainty` : ""}`
+    ? approximateScale ? "approximate scale" : "heater base"
     : `error ${cal.rms_in?.toFixed(2) ?? "?"} in, ${cal.drift_px !== null ? `drift ${cal.drift_px.toFixed(1)} px` : "markers hidden"}`;
   const apiValue = state.mode === "sim" ? "simulated" : a.ok
     ? a.local_tracking
@@ -64,6 +66,14 @@ export function HealthBar({ state, connected, onSetup }: { state: StateMessage |
       <Cell ok={camera.healthy} label="Camera" value={cameraValue} />
       <Cell ok={!cal.configured || state.degraded.includes("CALIBRATION_DRIFT") ? false
         : (cal.distance_err_pct ?? 0) >= 30 ? null : true} label="Calibration" value={calValue} />
+      {cal.method === "heater" && cal.distance_err_pct !== null && <div>
+        <details className="max-w-md whitespace-normal text-sm">
+          <summary className="cursor-pointer">Calibration details</summary>
+          <p>{cal.distance_err_pct}% estimated distance uncertainty. This measures scale sensitivity, not object-detection confidence. {approximateScale
+            ? "Inch distances and the zone’s physical size can be inaccurate with this calibration."
+            : "Distances are camera estimates."}</p>
+        </details>
+      </div>}
       {onSetup && <div><button type="button" className="btn btn--sm" onClick={onSetup}>{cal.configured ? "Edit heater base" : "Set up heater base"}</button></div>}
       <Cell ok={state.mode === "sim" ? null : a.ok} label="Meta API" value={apiValue} />
       <div title={`${usd(spend.total_usd)} spent in total`}>

@@ -91,8 +91,15 @@ export default function App() {
             <Icon name={alerts.enabled ? "bell" : "bellOff"} size={18} />
             {alerts.enabled ? "Alerts on" : alerts.paused ? "Resume alerts" : "Turn on alerts"}
           </button>
+          <button type="button" data-notification-test className="btn" onClick={() => void alerts.testNotification()}
+            title={alerts.notificationHelp}>
+            {alerts.notificationPermission === "granted" ? "Test notification"
+              : alerts.notificationPermission === "denied" ? "Notifications blocked" : "Enable notifications"}
+          </button>
         </div>
       </header>
+
+      {alerts.notificationMessage && <p className="text-sm text-muted" role="status">{alerts.notificationMessage}</p>}
 
       <StateBanner state={state} stale={stale} connected={connected} onSetup={openSetup} />
 
