@@ -44,6 +44,7 @@ from .sources import FrameSource, MjpegHttpSource
 
 # A heater always has a cord, and walls and trim are part of the room: neither is something placed near the heater.
 CORD_WORDS = {"cord", "cords", "cable", "cables", "wire", "wires"}
+API_DOWN_LOG_INTERVAL_S = 300.0
 FIXTURE_WORDS = {"wall", "walls", "drywall", "baseboard", "baseboards", "skirting", "molding", "moulding", "trim",
                  "outlet", "outlets", "socket", "sockets", "switch", "door", "doors", "doorframe", "window",
                  "windows", "windowsill", "ceiling"}
@@ -220,6 +221,7 @@ class Engine:
         self._calibration_ok = True
         self._measured: list[MeasuredObject] = []
         self._closest: dict | None = None
+        self._api_down_logged_t = float("-inf")
         self._catchall_objs: list[PerceivedObject] = []
         self._prev_state = self.sm.state
         self._power_history: deque[float] = deque(maxlen=120)
@@ -520,8 +522,13 @@ class Engine:
                          {"incident": self._open_incident.id, "closest": closest})
                 self._queue_off(self._open_incident)
             elif action is Action.DEGRADED_ALERT:
-                self.log("degraded", "Degraded: " + ", ".join(d.degraded).replace("_", " ").lower(),
-                         {"degraded": list(d.degraded)})
+                # API_DOWN flaps whenever a model call is slow; log it at most once per interval when alone.
+                only_api = set(d.degraded) == {"API_DOWN"}
+                if not only_api or d.t - self._api_down_logged_t >= API_DOWN_LOG_INTERVAL_S:
+                    if only_api:
+                        self._api_down_logged_t = d.t
+                    self.log("degraded", "Degraded: " + ", ".join(d.degraded).replace("_", " ").lower(),
+                             {"degraded": list(d.degraded)})
             elif action is Action.POWER_RESTORED:
                 self.log("alarm", "Plug reports power on again without a reset; monitoring resumed")
 

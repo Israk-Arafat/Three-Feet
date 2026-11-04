@@ -341,6 +341,18 @@ def test_api_outage_degrades_to_unknown_high_hazard(rig):
     assert engine.state_message["objects"][0]["hazard"] == "high"
 
 
+def test_repeated_api_down_flaps_log_one_event(rig):
+    engine, world, _, tick = rig
+    world.place("box", "near")
+    for _ in range(4):
+        engine.perception.fault_api = True
+        tick()
+        engine.perception.fault_api = False
+        tick()
+    logged = [e for e in engine._events if e["kind"] == "degraded"]
+    assert len(logged) == 1
+
+
 def test_local_motion_waits_for_sam_and_report_names_actual_trigger(rig, monkeypatch):
     engine, world, plug, tick = rig
     tick()
